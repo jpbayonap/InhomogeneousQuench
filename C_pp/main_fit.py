@@ -15,12 +15,12 @@ python3 main_fit.py \
   --gammas "1.0" \
   --sizes "1000" \
   --beta "1.0" \
-  --s-offsets "1" \
+  --s-offsets "1000" \
   --a-zeta 0.35 \
   --zeta-side right \
   --x-scale log \
   --allow-missing-times\
-  --times "200 400 600 800"
+  --times "200 400 600 800 900"
 '''
 
 def parse_list(s, cast=float):

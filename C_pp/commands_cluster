@@ -1,0 +1,88 @@
+# 1) who/where am I
+hostname
+whoami
+pwd
+date
+
+# 2) OS + CPU + memory
+uname -a
+lscpu
+free -h
+
+# 3) disk + quotas
+df -h
+du -sh ~/*
+quota -s    # if enabled on your cluster
+
+# 4) scheduler availability (common)
+which squeue && squeue -u $USER
+which sinfo && sinfo
+which sacct && sacct -u $USER -S today
+
+# 5) partitions / limits (Slurm)
+scontrol show partition
+scontrol show config | rg -i "MaxTime|DefMem|MaxMem|Gres"
+
+# 6) available modules / software
+module avail
+module list
+which python3
+python3 --version
+
+# 7) GPU nodes (if any)
+which nvidia-smi && nvidia-smi
+
+# 8) test interactive allocation (Slurm example)
+srun --pty -p <partition> -t 00:10:00 bash
+# then inside:
+hostname
+nproc
+exit
+
+# See your public keys + fingerprints
+ls -1 ~/.ssh/*.pub
+for k in ~/.ssh/*.pub; do ssh-keygen -lf "$k"; done
+
+# Force one key to test bastion
+ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes bastion-nav
+
+# Force same key through jump host
+ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -J bastion-nav ophfe2
+
+# Send files 
+rsync -avh --progress /Users/juan/Desktop/Git/InhomogeneousQuench ophfe2:~/
+
+# Quick check
+ssh ophfe2 "du -sh ~/InhomogeneousQuench && ls -la ~/InhomogeneousQuench | head'
+
+# Faster syncs
+rsync -avh --progress --delete /Users/juan/Desktop/Git/InhomogeneousQuench/ ophfe2:~/InhomogeneousQuench/
+
+# node properties
+32 physical cores (Thread(s) per core = 2)
+For your Python/joblib workload, physical cores are usually best.
+
+#  export env
+source ~/venvs/qsim/bin/activate
+python -m pip freeze > ~/Desktop/Git/InhomogeneousQuench/C_pp/requirements_qsim.txt
+deactivate
+# send requirements 
+rsync -avh ~/Desktop/Git/InhomogeneousQuench/C_pp/requirements_qsim.txt ophfe2:~/InhomogeneousQuench/C_pp/
+# create env
+ssh ophfe2
+python3 -m venv ~/venvs/qsim
+source ~/venvs/qsim/bin/activate
+python -V
+python -m pip -V
+python -m pip install -U pip setuptools wheel
+python -m pip install -r requirements_cluster.txt
+# check
+python -c "import numpy, scipy, matplotlib, joblib, pandas; print('OK')"
+
+
+git rm --cached -r -- ':(glob)**/*.csv' ':(glob)**/*.png'
+
+# Check history in git
+pwd
+git rev-parse --show-toplevel
+git status --short | wc -l
