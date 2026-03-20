@@ -1,0 +1,121 @@
+#!/bin/bash
+#SBATCH --job-name=ghd_it_cov
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=50
+#SBATCH --hint=nomultithread
+#SBATCH --mem-per-cpu=4G
+#SBATCH --time=24:00:00
+#SBATCH --constraint=matrix
+#SBATCH --partition=m1
+#SBATCH --output=logs/%x_%j.out
+#SBATCH --error=logs/%x_%j.err
+#SBATCH --qos=normal
+##SBATCH --account=oph
+##SBATCH --mail-type=END,FAIL
+##SBATCH --mail-user=juanpablo.bayonapen2@unibo.it
+
+set -euo pipefail
+
+cd "${SLURM_SUBMIT_DIR}"
+mkdir -p logs
+
+echo "Job ID      : ${SLURM_JOB_ID}"
+echo "Node list   : ${SLURM_NODELIST}"
+echo "CPUs/task   : ${SLURM_CPUS_PER_TASK}"
+echo "Start       : $(date -Iseconds)"
+
+VENV_PATH=${VENV_PATH:-"$HOME/venvs/qsim"}
+if [ -d "$VENV_PATH" ]; then
+  # shellcheck disable=SC1090
+  source "$VENV_PATH/bin/activate"
+fi
+
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+export GOTO_NUM_THREADS=1
+
+PYTHON_BIN=${PYTHON_BIN:-python3}
+N_JOBS=${N_JOBS:-1}
+
+SIZES=${SIZES:-"1500"}
+TIMES=${TIMES:-"100 200 250"}
+GAMMAS=${GAMMAS:-"1.0"}
+S_OFFSET=${S_OFFSET:-${SIZES}}
+
+BETA=${BETA:-0.0}
+BETA_L=${BETA_L:-}
+BETA_R=${BETA_R:-}
+VAC_FILL=${VAC_FILL:-0}
+VAC_INFTY=${VAC_INFTY:-0}
+MIXED_NEEL=${MIXED_NEEL:-0}
+PHSYMM=${PHSYMM:-0}
+PHSYMM_ODD=${PHSYMM_ODD:-0}
+PHSYMM_M=${PHSYMM_M:-1}
+PHSYMM_A=${PHSYMM_A:-0.2}
+
+METHOD=${METHOD:-rk4}
+RK_STEPS=${RK_STEPS:-600}
+RK_DT_MAX=${RK_DT_MAX:-0.40}
+RK_TOL=${RK_TOL:-1e-7}
+RK_ADAPT=${RK_ADAPT:-0}
+
+COV_DTYPE=${COV_DTYPE:-complex64}
+SKIP_EXISTING=${SKIP_EXISTING:-1}
+OUTDIR=${OUTDIR:-"$PWD/runs/neel_cov"}
+
+read -r -a SIZES_ARR <<< "${SIZES}"
+read -r -a TIMES_ARR <<< "${TIMES}"
+read -r -a GAMMAS_ARR <<< "${GAMMAS}"
+read -r -a SOFF_ARR <<< "${S_OFFSET}"
+
+echo "Parameters:"
+echo "  SIZES=${SIZES}"
+echo "  TIMES=${TIMES}"
+echo "  GAMMAS=${GAMMAS}"
+echo "  S_OFFSET=${S_OFFSET}"
+echo "  BETA=${BETA}, BETA_L=${BETA_L:-<none>}, BETA_R=${BETA_R:-<none>}"
+echo "  VAC_FILL=${VAC_FILL}, VAC_INFTY=${VAC_INFTY}, MIXED_NEEL=${MIXED_NEEL}, PHSYMM=${PHSYMM}, PHSYMM_ODD=${PHSYMM_ODD} (m=${PHSYMM_M}, A=${PHSYMM_A})"
+echo "  METHOD=${METHOD}, RK_STEPS=${RK_STEPS}, RK_DT_MAX=${RK_DT_MAX}, RK_TOL=${RK_TOL}, RK_ADAPT=${RK_ADAPT}"
+echo "  N_JOBS=${N_JOBS}, COV_DTYPE=${COV_DTYPE}, SKIP_EXISTING=${SKIP_EXISTING}, OUTDIR=${OUTDIR}"
+
+CMD=(
+  "${PYTHON_BIN}" ./main_dynamics_it_cov.py
+  --sizes "${SIZES_ARR[@]}"
+  --times "${TIMES_ARR[@]}"
+  --gammas "${GAMMAS_ARR[@]}"
+  --s-offset "${SOFF_ARR[@]}"
+  --method "${METHOD}"
+  --rk-steps "${RK_STEPS}"
+  --rk-dt-max "${RK_DT_MAX}"
+  --rk-tol "${RK_TOL}"
+  --n-jobs "${N_JOBS}"
+  --cov-dtype "${COV_DTYPE}"
+  --outdir "${OUTDIR}"
+)
+
+if [ -n "${BETA_L}" ]; then CMD+=(--betaL "${BETA_L}"); fi
+if [ -n "${BETA_R}" ]; then CMD+=(--betaR "${BETA_R}"); fi
+if [ -z "${BETA_L}" ] && [ -z "${BETA_R}" ]; then CMD+=(--beta "${BETA}"); fi
+if [ "${VAC_FILL}" != "0" ]; then CMD+=(--vac-fill); fi
+if [ "${VAC_INFTY}" != "0" ]; then CMD+=(--vac-infty); fi
+if [ "${MIXED_NEEL}" != "0" ]; then CMD+=(--mixed-neel); fi
+if [ "${PHSYMM}" != "0" ]; then CMD+=(--phsymm --phsymm-m "${PHSYMM_M}" --phsymm-A "${PHSYMM_A}"); fi
+if [ "${PHSYMM_ODD}" != "0" ]; then CMD+=(--phsymm-odd --phsymm-m "${PHSYMM_M}" --phsymm-A "${PHSYMM_A}"); fi
+if [ "${RK_ADAPT}" != "0" ]; then CMD+=(--rk-adapt); fi
+if [ "${SKIP_EXISTING}" != "0" ]; then CMD+=(--skip-existing); fi
+
+JOB_START_EPOCH=$(date +%s)
+if command -v srun >/dev/null 2>&1; then
+  if ! time srun --ntasks=1 --cpus-per-task="${SLURM_CPUS_PER_TASK:-1}" --cpu-bind=cores "${CMD[@]}"; then
+    echo "WARNING: srun launch failed; retrying command without srun..."
+    time "${CMD[@]}"
+  fi
+else
+  time "${CMD[@]}"
+fi
+JOB_END_EPOCH=$(date +%s)
+
+echo "End         : $(date -Iseconds)"
+echo "Elapsed (s) : $((JOB_END_EPOCH - JOB_START_EPOCH))"

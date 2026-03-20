@@ -1,3 +1,18 @@
+# macOS / Python caches
+.DS_Store
+__pycache__/
+*.pyc
+
 # Generated data/figures
+runs/
+GHD_SUPERPOSED/
+logs/
 *.csv
 *.png
+*.pdf
+*.nb
+*.npz
+*.npy
+*.log
+*.out
+*.err
