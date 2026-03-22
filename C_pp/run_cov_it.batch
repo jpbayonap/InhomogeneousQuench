@@ -11,8 +11,8 @@
 #SBATCH --error=logs/%x_%j.err
 #SBATCH --qos=normal
 ##SBATCH --account=oph
-##SBATCH --mail-type=END,FAIL
-##SBATCH --mail-user=juanpablo.bayonapen2@unibo.it
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user=juanpablo.bayonapen2@unibo.it
 
 set -euo pipefail
 
