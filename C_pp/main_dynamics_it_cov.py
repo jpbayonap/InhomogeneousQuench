@@ -1,35 +1,200 @@
 #!/usr/bin/env python3
 """
-Cluster-oriented variant of main_dynamics_it.py.
+Self-contained covariance evolution driver.
 Evolves the covariance matrix and saves C_t directly, so q/j profiles for any
 r, sign can be reconstructed later without re-running the dynamics.
 """
-import sys
 import time
 import argparse
 import os
 import numpy as np
+import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 import scipy.linalg as la
 from joblib import Parallel, delayed
 
-# ensure repo root and C_pp are on sys.path
-here = os.path.dirname(os.path.abspath(__file__))
-repo_root = os.path.dirname(here)
-for p in (repo_root, here):
-    if p not in sys.path:
-        sys.path.append(p)
 
-from dynamics_module import Hamiltonian, mat2vec
-from main_dynamics_it import (
-    proj_row,
-    Gamma_beta,
-    Gamma0,
-    Gamma_mixed_neel,
-    Gamma_zero_filled,
-    Gamma_PHSYMM,
-    Gamma_PHSYMM_odd,
+INIT_STATES = (
+    "neel",
+    "neel_even",
+    "beta",
+    "beta_lr",
+    "vac_fill",
+    "vac_infty",
+    "phsymm",
+    "phsymm_odd",
 )
+
+
+def Hamiltonian(L, t1, mu=0.0, bc="open", dtype=np.complex128):
+    """
+    Nearest-neighbor Hamiltonian H = mu*I + t1*sum_j (|j><j+1| + |j+1><j|)
+    on a chain of length N = 2*L. OBC/PBC supported. Sparse CSR.
+    """
+    N = 2 * L
+    main = mu * np.ones(N, dtype=dtype)
+    off = -t1 * np.ones(N - 1, dtype=dtype)
+    H = sp.diags([off, main, off], offsets=[-1, 0, 1], format="csr", dtype=dtype)
+
+    if bc.lower() in ("periodic", "pbc"):
+        H = H.tolil()
+        H[0, N - 1] = -t1
+        H[N - 1, 0] = -t1
+        H = H.tocsr()
+
+    return H
+
+
+def mat2vec(C):
+    """Row-stacking vectorization: vec(C) with order='C' -> shape (N^2, 1)."""
+    return np.asarray(C).reshape(-1, 1, order="C")
+
+
+def proj_row(A: np.array, B: np.array, N: int, dtype=np.complex128) -> sp.csr_matrix:
+    A = np.atleast_1d(A).astype(int)
+    B = np.atleast_1d(B).astype(int)
+    if A.size == 0 or B.size == 0:
+        raise ValueError("A and B must be non-empty")
+    if np.any(A < 0) or np.any(A >= N) or np.any(B < 0) or np.any(B >= N):
+        raise ValueError(f"A,B must be in [0,{N-1}]")
+
+    rows = np.concatenate([np.repeat(A, B.size), np.repeat(B, A.size)])
+    cols = np.concatenate([np.tile(B, A.size), np.tile(A, B.size)])
+    data = np.ones(rows.size, dtype=dtype)
+    return sp.csr_matrix((data, (rows, cols)), shape=(N, N), dtype=dtype)
+
+
+def Gamma_beta(beta: float, h_dense: np.ndarray) -> np.ndarray:
+    r"""
+    One-body correlation matrix for a quadratic Hamiltonian:
+    C = V f(H) V^\dagger with f(eps)=1/(1+exp(beta*eps)).
+    """
+    eigvals, eigvecs = la.eigh(h_dense)
+    f_occ = 1.0 / (1.0 + np.exp(beta * eigvals))
+    return (eigvecs * f_occ) @ eigvecs.conjugate().T
+
+
+def Gamma0_odd(L: int):
+    """
+    Inhomogeneous initial state: vacuum on the left half, odd-Neel on the right half.
+    Occupied right-half sites are L+1, L+3, ...
+    """
+    N = 2 * L
+    diag = np.zeros(N, dtype=complex)
+    for j in range(L):
+        if j % 2 == 1:
+            diag[L + j] = 1.0
+    return np.diag(diag)
+
+
+def Gamma0_even(L: int):
+    """
+    Inhomogeneous initial state: vacuum on the left half, even-Neel on the right half.
+    Occupied right-half sites are L, L+2, ...
+    """
+    N = 2 * L
+    diag = np.zeros(N, dtype=complex)
+    for j in range(L):
+        if j % 2 == 0:
+            diag[L + j] = 1.0
+    return np.diag(diag)
+
+
+def Gamma_zero_filled(L: int):
+    """
+    Vac/fill domain wall: left half vacuum, right half filled.
+    """
+    N = 2 * L
+    diag = np.zeros(N, dtype=complex)
+    diag[L:] = 1.0
+    return np.diag(diag)
+
+
+def Gamma_PHSYMM(L: int, m: int, A: float):
+    """
+    Covariance matrix of the PHSYMM GGE:
+        n(k) = 1/2 + A sin(2 m k),   N = 2L
+    """
+    if L <= 0:
+        raise ValueError("L must be positive.")
+    if m < 0:
+        raise ValueError("m must be nonnegative.")
+
+    N = 2 * int(L)
+    m = int(m)
+    A = float(A)
+    if abs(A) > 0.5 + 1e-12:
+        raise ValueError(f"A={A} gives nonphysical n(k); require |A| <= 0.5.")
+
+    C = 0.5 * np.eye(N, dtype=np.complex128)
+    d = 2 * m
+    if d > 0 and d < N:
+        amp = 0.5j * A
+        C += amp * np.eye(N, k=d, dtype=np.complex128)
+        C -= amp * np.eye(N, k=-d, dtype=np.complex128)
+    return C
+
+
+def Gamma_PHSYMM_odd(L: int, m: int, A: float):
+    """
+    Covariance matrix of the odd-harmonic PHSYMM GGE:
+        n(k) = 1/2 + A cos([2m+1] k),   N = 2L
+    """
+    if L <= 0:
+        raise ValueError("L must be positive.")
+    if m < 0:
+        raise ValueError("m must be nonnegative.")
+
+    N = 2 * int(L)
+    m = int(m)
+    A = float(A)
+    if abs(A) > 0.5 + 1e-12:
+        raise ValueError(f"A={A} gives nonphysical n(k); require |A| <= 0.5.")
+
+    C = 0.5 * np.eye(N, dtype=np.complex128)
+    d = 2 * m + 1
+    if d > 0 and d < N:
+        amp = 0.5 * A
+        C += amp * np.eye(N, k=d, dtype=np.complex128)
+        C += amp * np.eye(N, k=-d, dtype=np.complex128)
+    return C
+
+
+def infer_legacy_init_state(args):
+    if args.betaL is not None or args.betaR is not None:
+        return "beta_lr"
+
+    selected = [
+        ("neel_even", args.neel_even),
+        ("vac_fill", args.vac_fill),
+        ("vac_infty", args.vac_infty),
+        ("phsymm", args.phsymm),
+        ("phsymm_odd", args.phsymm_odd),
+    ]
+    active = [name for name, enabled in selected if enabled]
+    if len(active) > 1:
+        raise ValueError(f"Multiple legacy state flags selected: {active}")
+    if active:
+        return active[0]
+    if args.beta == 0:
+        return "neel"
+    return "beta"
+
+
+def resolve_init_state(args):
+    if args.init_state is None:
+        return infer_legacy_init_state(args)
+
+    init_state = args.init_state
+    if init_state == "beta_lr":
+        if args.betaL is None and args.betaR is None:
+            raise ValueError("--init-state beta_lr requires --betaL and/or --betaR.")
+    elif init_state == "phsymm" and args.phsymm_odd:
+        raise ValueError("--init-state phsymm conflicts with --phsymm-odd.")
+    elif init_state == "phsymm_odd" and args.phsymm:
+        raise ValueError("--init-state phsymm_odd conflicts with --phsymm.")
+
+    return init_state
 
 
 def build_output_path(
@@ -39,95 +204,69 @@ def build_output_path(
     s_off,
     gamma,
     T,
-    Beta,
+    init_state,
+    beta,
     betaL,
     betaR,
-    vac_fill,
-    mixed_neel,
-    vac_infty,
-    phsymm,
-    phsymm_odd,
     phsymm_m,
     phsymm_A,
 ):
-    if betaL is not None or betaR is not None:
+    if init_state == "beta_lr":
         return os.path.join(
             cov_dir,
             f"GHD_ITCOV_betaL_{betaL}_betaR_{betaR}_s_{s_off}_gamma{gamma:.2f}_T{T}_N{N}.npz",
         )
-    if vac_fill:
+    if init_state == "vac_fill":
         return os.path.join(
             cov_dir,
             f"GHD_ITCOV_vac_fill_s_{s_off}_gamma{gamma:.2f}_T{T}_N{N}.npz",
         )
-    if mixed_neel:
+    if init_state == "neel_even":
         return os.path.join(
             cov_dir,
-            f"GHD_ITCOV_MixedNeel_s_{s_off}_gamma{gamma:.2f}_T{T}_N{N}.npz",
+            f"GHD_ITCOV_NEEL_EVEN_s_{s_off}_gamma{gamma:.2f}_T{T}_N{N}.npz",
         )
-    if vac_infty:
+    if init_state == "vac_infty":
         return os.path.join(
             cov_dir,
             f"GHD_ITCOV_VacInfty_s_{s_off}_gamma{gamma:.2f}_T{T}_N{N}.npz",
         )
-    if phsymm_odd:
+    if init_state == "phsymm_odd":
         return os.path.join(
             cov_dir,
             f"GHD_ITCOV_PHSYMM_ODD_m{phsymm_m}_A{phsymm_A:.6g}_s_{s_off}_gamma{gamma:.2f}_T{T}_N{N}.npz",
         )
-    if phsymm:
+    if init_state == "phsymm":
         return os.path.join(
             cov_dir,
             f"GHD_ITCOV_PHSYMM_m{phsymm_m}_A{phsymm_A:.6g}_s_{s_off}_gamma{gamma:.2f}_T{T}_N{N}.npz",
         )
-    if Beta == 0:
+    if init_state == "neel":
         return os.path.join(
             cov_dir,
             f"GHD_ITCOV_NEEL_s_{s_off}_gamma{gamma:.2f}_T{T}_N{N}.npz",
         )
     return os.path.join(
         cov_dir,
-        f"GHD_ITCOV_Beta_{Beta}_s_{s_off}_gamma{gamma:.2f}_T{T}_N{N}.npz",
+        f"GHD_ITCOV_Beta_{beta}_s_{s_off}_gamma{gamma:.2f}_T{T}_N{N}.npz",
     )
-
-
-def infer_state_tag(*, Beta, betaL, betaR, vac_fill, mixed_neel, vac_infty, phsymm, phsymm_odd):
-    if betaL is not None or betaR is not None:
-        return "beta_lr"
-    if vac_fill:
-        return "vac_fill"
-    if mixed_neel:
-        return "mixed_neel"
-    if vac_infty:
-        return "vac_infty"
-    if phsymm_odd:
-        return "phsymm_odd"
-    if phsymm:
-        return "phsymm"
-    if Beta == 0:
-        return "neel"
-    return "beta"
 
 
 def build_initial_covariance(
     *,
+    init_state,
     H,
     s,
-    Beta,
+    beta,
     betaL,
     betaR,
-    vac_fill,
-    mixed_neel,
-    vac_infty,
-    phsymm,
-    phsymm_odd,
     phsymm_m,
     phsymm_A,
 ):
     local_betaL = betaL
     local_betaR = betaR
 
-    if local_betaL is not None or local_betaR is not None:
+    if init_state == "beta_lr":
         if local_betaL is None:
             local_betaL = local_betaR
         if local_betaR is None:
@@ -141,25 +280,25 @@ def build_initial_covariance(
             C0 = la.block_diag(C_L, C_R)
         else:
             C0 = Gamma_beta(local_betaR, H_dense)
-    elif vac_fill:
+    elif init_state == "vac_fill":
         C0 = Gamma_zero_filled(s)
-    elif mixed_neel:
-        C0 = Gamma_mixed_neel(s)
-    elif vac_infty:
+    elif init_state == "neel_even":
+        C0 = Gamma0_even(s)
+    elif init_state == "vac_infty":
         H_dense = H.toarray()
         H_L = H_dense[:s, :s]
         H_R = H_dense[s:, s:]
         C_L = np.zeros_like(H_L)
         C_R = Gamma_beta(0.0, H_R)
         C0 = la.block_diag(C_L, C_R)
-    elif phsymm_odd:
+    elif init_state == "phsymm_odd":
         C0 = Gamma_PHSYMM_odd(s, phsymm_m, phsymm_A)
-    elif phsymm:
+    elif init_state == "phsymm":
         C0 = Gamma_PHSYMM(s, phsymm_m, phsymm_A)
-    elif Beta == 0:
-        C0 = Gamma0(s)
+    elif init_state == "neel":
+        C0 = Gamma0_odd(s)
     else:
-        C0 = Gamma_beta(Beta, H.toarray())
+        C0 = Gamma_beta(beta, H.toarray())
 
     return C0, local_betaL, local_betaR
 
@@ -244,6 +383,7 @@ def main():
     ap.add_argument("--sizes", type=int, nargs="+", default=[400], help="Half-chain sizes (L)")
     ap.add_argument("--times", type=float, nargs="+", default=[200], help="Times array")
     ap.add_argument("--gammas", type=float, nargs="+", default=[0.1], help="Gamma values")
+    ap.add_argument("--init-state", choices=INIT_STATES, default=None, help="Explicit initial-state selector.")
     ap.add_argument("--beta", type=float, default=1.0, help="Inverse temperature Beta (homogeneous)")
     ap.add_argument("--betaL", type=float, default=None, help="Left-half inverse temperature")
     ap.add_argument("--betaR", type=float, default=None, help="Right-half inverse temperature")
@@ -270,8 +410,8 @@ def main():
     ap.add_argument("--cov-dtype", choices=["complex128", "complex64"], default="complex128", help="Stored covariance dtype.")
     ap.add_argument("--vac-infty", dest="vac_infty", action="store_true", help="Use vacuum/infinite-temperature split state.")
     ap.add_argument("--no-vac-infty", dest="vac_infty", action="store_false", help="Disable vacuum/infinite-temperature split state.")
-    ap.add_argument("--mixed-neel", dest="mixed_neel", action="store_true", help="Use mixed-Neel initial state.")
-    ap.add_argument("--no-mixed-neel", dest="mixed_neel", action="store_false", help="Disable mixed-Neel initial state.")
+    ap.add_argument("--neel-even", dest="neel_even", action="store_true", help="Use even-Neel on the right half.")
+    ap.add_argument("--no-neel-even", dest="neel_even", action="store_false", help="Disable even-Neel on the right half.")
     ap.add_argument("--vac-fill", dest="vac_fill", action="store_true", help="Use vac/fill domain-wall initial state.")
     ap.add_argument("--no-vac-fill", dest="vac_fill", action="store_false", help="Disable vac/fill initial state.")
     ap.add_argument("--phsymm", dest="phsymm", action="store_true", help="Use PHSYMM GGE initial state n(k)=1/2 + A*sin(2*m*k).")
@@ -285,12 +425,13 @@ def main():
     ap.add_argument("--sign", type=str, default=None, help="Unused in covariance mode.")
 
     ap.set_defaults(vac_infty=False)
-    ap.set_defaults(mixed_neel=False)
+    ap.set_defaults(neel_even=False)
     ap.set_defaults(vac_fill=False)
     ap.set_defaults(phsymm=False)
     ap.set_defaults(phsymm_odd=False)
 
     args = ap.parse_args()
+    init_state = resolve_init_state(args)
 
     sizes = list(args.sizes)
     s_offsets = args.s_offset
@@ -326,43 +467,26 @@ def main():
         pr_rows, pr_cols = P_row.nonzero()
 
         C0, local_betaL, local_betaR = build_initial_covariance(
+            init_state=init_state,
             H=H,
             s=s,
-            Beta=args.beta,
+            beta=args.beta,
             betaL=args.betaL,
             betaR=args.betaR,
-            vac_fill=args.vac_fill,
-            mixed_neel=args.mixed_neel,
-            vac_infty=args.vac_infty,
-            phsymm=args.phsymm,
-            phsymm_odd=args.phsymm_odd,
             phsymm_m=args.phsymm_m,
             phsymm_A=args.phsymm_A,
         )
-        state_tag = infer_state_tag(
-            Beta=args.beta,
-            betaL=local_betaL,
-            betaR=local_betaR,
-            vac_fill=args.vac_fill,
-            mixed_neel=args.mixed_neel,
-            vac_infty=args.vac_infty,
-            phsymm=args.phsymm,
-            phsymm_odd=args.phsymm_odd,
-        )
+        state_tag = init_state
         outpath = build_output_path(
             cov_dir,
             N=N,
             s_off=s_off,
             gamma=g,
             T=T,
-            Beta=args.beta,
+            init_state=init_state,
+            beta=args.beta,
             betaL=local_betaL,
             betaR=local_betaR,
-            vac_fill=args.vac_fill,
-            mixed_neel=args.mixed_neel,
-            vac_infty=args.vac_infty,
-            phsymm=args.phsymm,
-            phsymm_odd=args.phsymm_odd,
             phsymm_m=args.phsymm_m,
             phsymm_A=args.phsymm_A,
         )

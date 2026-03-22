@@ -7,7 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
-INIT_STATES = ("neel", "beta", "beta_lr", "vac_fill", "mixed_neel", "vac_infty", "phsymm", "phsymm_odd")
+INIT_STATES = ("neel", "neel_even", "beta", "beta_lr", "vac_fill", "mixed_neel", "vac_infty", "phsymm", "phsymm_odd")
 
 '''
 run example:
@@ -65,6 +65,7 @@ def init_state_tex_label(init_state):
     labels = {
         "neel": r"\mathrm{num}",
         "vac_fill": r"\mathrm{num}",
+        "neel_even": r"\mathrm{num}",
         "mixed_neel": r"\mathrm{num}",
         "vac_infty": r"\mathrm{num}",
         "phsymm": r"\mathrm{num}",
@@ -79,6 +80,7 @@ def init_state_panel_label(init_state):
     labels = {
         "neel": r"\mathrm{Vacuum\ Neel}",
         "vac_fill": r"\mathrm{Vac/Fill}",
+        "neel_even": r"\mathrm{Vacuum\ Neel\ even}",
         "mixed_neel": r"\mathrm{Mixed\ Neel}",
         "vac_infty": r"\mathrm{Vac/Infty}",
         "phsymm": r"\mathrm{PHSYMM}",
@@ -184,6 +186,9 @@ def parse_name(path):
     )
     pattern_it_neel = re.compile(
         r"GHD_IT_NEEL_r(?P<r>[-0-9]+)_s_(?P<s>[-0-9.]+)_sign(?P<sign>[+-])_gamma(?P<gamma>[-0-9.]+)_T(?P<T>[-0-9.]+)_N(?P<N>[-0-9]+)\.csv"
+    )
+    pattern_it_neel_even = re.compile(
+        r"GHD_IT_NEEL_EVEN_r(?P<r>[-0-9]+)_s_(?P<s>[-0-9.]+)_sign(?P<sign>[+-])_gamma(?P<gamma>[-0-9.]+)_T(?P<T>[-0-9.]+)_N(?P<N>[-0-9]+)\.csv"
     )
     pattern_it_vac_fill = re.compile(
         r"GHD_vac_fill_r(?P<r>[-0-9]+)_s_(?P<s>[-0-9.]+)_sign(?P<sign>[+-])_gamma(?P<gamma>[-0-9.]+)_T(?P<T>[-0-9.]+)_N(?P<N>[-0-9]+)\.csv"
@@ -377,6 +382,26 @@ def parse_name(path):
         return {
             "source": "py",
             "init_state": "neel",
+            "beta": 0.0,
+            "betaL": None,
+            "betaR": None,
+            "a": None,
+            "b": None,
+            "s": int(float(d["s"])),
+            "r": int(d["r"]),
+            "sign": d["sign"],
+            "gamma": float(d["gamma"]),
+            "T": float(d["T"]),
+            "N": int(d["N"]),
+            "M": None,
+        }
+
+    m = pattern_it_neel_even.match(name)
+    if m:
+        d = m.groupdict()
+        return {
+            "source": "py",
+            "init_state": "neel_even",
             "beta": 0.0,
             "betaL": None,
             "betaR": None,
@@ -632,7 +657,7 @@ def main():
         "--init-state",
         type=str,
         default=None,
-        choices=["neel", "vac_fill", "mixed_neel", "vac_infty", "phsymm", "phsymm_odd", "beta", "beta_lr"],
+        choices=["neel", "neel_even", "vac_fill", "mixed_neel", "vac_infty", "phsymm", "phsymm_odd", "beta", "beta_lr"],
         help="Filter by initial-state family inferred from filename.",
     )
     ap.add_argument("--mat-csv-dir", type=str, default=None,
@@ -912,6 +937,8 @@ def main():
         init_state = info0.get("init_state")
         if init_state == "neel":
             title = rf"$r={info0['r']},\ \mathrm{{sign}}={info0['sign']},\ {gamma_txt},\ {t_txt},\ N={info0['N']}$"
+        elif init_state == "neel_even":
+            title = rf"$\mathrm{{Vacuum\ Neel\ even}},\ r={info0['r']},\ \mathrm{{sign}}={info0['sign']},\ {gamma_txt},\ {t_txt},\ N={info0['N']}$"
         elif init_state == "vac_fill":
             title = rf"$\mathrm{{Vac/Fill}},\ r={info0['r']},\ \mathrm{{sign}}={info0['sign']},\ {gamma_txt},\ {t_txt},\ N={info0['N']}$"
         elif init_state == "mixed_neel":
@@ -1053,6 +1080,8 @@ def main():
         info = meta["info0"]
         if init_state == "neel":
             outpng = os.path.join(png_dir, f"GHD_NEEL_sp{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}.png")
+        elif init_state == "neel_even":
+            outpng = os.path.join(png_dir, f"GHD_IT_NEEL_EVEN_superposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}.png")
         elif init_state == "vac_fill":
             outpng = os.path.join(png_dir, f"GHD_vac_fill_superposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}.png")
         elif init_state == "mixed_neel":

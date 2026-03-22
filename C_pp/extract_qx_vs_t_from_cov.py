@@ -34,6 +34,7 @@ def compute_point(C_t, x_abs, r, sign):
 def base_name(meta0, x_rel, r, sign):
     prefix = {
         "neel": "GHD_QXT_NEEL_COV",
+        "neel_even": "GHD_QXT_NEEL_EVEN_COV",
         "beta": "GHD_QXT_Beta_COV",
         "beta_lr": "GHD_QXT_betaLR_COV",
         "vac_fill": "GHD_QXT_VAC_FILL_COV",
@@ -52,7 +53,7 @@ def main():
     ap = argparse.ArgumentParser(description="Extract q(x,t), J(x,t) directly from GHD_IT_COV files.")
     ap.add_argument("--outdir", type=str, default=".", help="Output directory for CSV/PNG")
     ap.add_argument("--cov-dir", type=str, default=None, help="Directory with covariance .npz files")
-    ap.add_argument("--init-state", type=str, required=True, choices=["neel", "beta", "beta_lr", "vac_fill", "mixed_neel", "vac_infty", "phsymm", "phsymm_odd"])
+    ap.add_argument("--init-state", type=str, required=True, choices=["neel", "neel_even", "beta", "beta_lr", "vac_fill", "mixed_neel", "vac_infty", "phsymm", "phsymm_odd"])
     ap.add_argument("--sizes", type=str, required=True, help="Comma/space-separated half-sizes L")
     ap.add_argument("--s-offsets", type=str, required=True, help="Comma/space-separated s offsets")
     ap.add_argument("--gammas", type=str, required=True, help="Comma/space-separated gamma values")

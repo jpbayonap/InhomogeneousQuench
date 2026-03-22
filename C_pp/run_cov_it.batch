@@ -47,9 +47,11 @@ S_OFFSET=${S_OFFSET:-${SIZES}}
 BETA=${BETA:-0.0}
 BETA_L=${BETA_L:-}
 BETA_R=${BETA_R:-}
+INIT_STATE=${INIT_STATE:-}
+VAC_NEEL=${VAC_NEEL:-0}
+NEEL_EVEN=${NEEL_EVEN:-0}
 VAC_FILL=${VAC_FILL:-0}
 VAC_INFTY=${VAC_INFTY:-0}
-MIXED_NEEL=${MIXED_NEEL:-0}
 PHSYMM=${PHSYMM:-0}
 PHSYMM_ODD=${PHSYMM_ODD:-0}
 PHSYMM_M=${PHSYMM_M:-1}
@@ -76,9 +78,31 @@ echo "  TIMES=${TIMES}"
 echo "  GAMMAS=${GAMMAS}"
 echo "  S_OFFSET=${S_OFFSET}"
 echo "  BETA=${BETA}, BETA_L=${BETA_L:-<none>}, BETA_R=${BETA_R:-<none>}"
-echo "  VAC_FILL=${VAC_FILL}, VAC_INFTY=${VAC_INFTY}, MIXED_NEEL=${MIXED_NEEL}, PHSYMM=${PHSYMM}, PHSYMM_ODD=${PHSYMM_ODD} (m=${PHSYMM_M}, A=${PHSYMM_A})"
+echo "  INIT_STATE=${INIT_STATE:-<legacy-infer>} | VAC_NEEL=${VAC_NEEL} | NEEL_EVEN=${NEEL_EVEN} | VAC_FILL=${VAC_FILL} | VAC_INFTY=${VAC_INFTY} | PHSYMM=${PHSYMM} | PHSYMM_ODD=${PHSYMM_ODD} (m=${PHSYMM_M}, A=${PHSYMM_A})"
 echo "  METHOD=${METHOD}, RK_STEPS=${RK_STEPS}, RK_DT_MAX=${RK_DT_MAX}, RK_TOL=${RK_TOL}, RK_ADAPT=${RK_ADAPT}"
 echo "  N_JOBS=${N_JOBS}, COV_DTYPE=${COV_DTYPE}, SKIP_EXISTING=${SKIP_EXISTING}, OUTDIR=${OUTDIR}"
+
+if [ -z "${INIT_STATE}" ]; then
+  if [ -n "${BETA_L}" ] || [ -n "${BETA_R}" ]; then
+    INIT_STATE=beta_lr
+  elif [ "${VAC_NEEL}" != "0" ]; then
+    INIT_STATE=neel
+  elif [ "${NEEL_EVEN}" != "0" ]; then
+    INIT_STATE=neel_even
+  elif [ "${VAC_FILL}" != "0" ]; then
+    INIT_STATE=vac_fill
+  elif [ "${VAC_INFTY}" != "0" ]; then
+    INIT_STATE=vac_infty
+  elif [ "${PHSYMM}" != "0" ]; then
+    INIT_STATE=phsymm
+  elif [ "${PHSYMM_ODD}" != "0" ]; then
+    INIT_STATE=phsymm_odd
+  elif [ "${BETA}" = "0" ] || [ "${BETA}" = "0.0" ]; then
+    INIT_STATE=neel
+  else
+    INIT_STATE=beta
+  fi
+fi
 
 CMD=(
   "${PYTHON_BIN}" ./main_dynamics_it_cov.py
@@ -86,6 +110,7 @@ CMD=(
   --times "${TIMES_ARR[@]}"
   --gammas "${GAMMAS_ARR[@]}"
   --s-offset "${SOFF_ARR[@]}"
+  --init-state "${INIT_STATE}"
   --method "${METHOD}"
   --rk-steps "${RK_STEPS}"
   --rk-dt-max "${RK_DT_MAX}"
@@ -97,12 +122,10 @@ CMD=(
 
 if [ -n "${BETA_L}" ]; then CMD+=(--betaL "${BETA_L}"); fi
 if [ -n "${BETA_R}" ]; then CMD+=(--betaR "${BETA_R}"); fi
-if [ -z "${BETA_L}" ] && [ -z "${BETA_R}" ]; then CMD+=(--beta "${BETA}"); fi
-if [ "${VAC_FILL}" != "0" ]; then CMD+=(--vac-fill); fi
-if [ "${VAC_INFTY}" != "0" ]; then CMD+=(--vac-infty); fi
-if [ "${MIXED_NEEL}" != "0" ]; then CMD+=(--mixed-neel); fi
-if [ "${PHSYMM}" != "0" ]; then CMD+=(--phsymm --phsymm-m "${PHSYMM_M}" --phsymm-A "${PHSYMM_A}"); fi
-if [ "${PHSYMM_ODD}" != "0" ]; then CMD+=(--phsymm-odd --phsymm-m "${PHSYMM_M}" --phsymm-A "${PHSYMM_A}"); fi
+CMD+=(--beta "${BETA}")
+if [ "${INIT_STATE}" = "phsymm" ] || [ "${INIT_STATE}" = "phsymm_odd" ]; then
+  CMD+=(--phsymm-m "${PHSYMM_M}" --phsymm-A "${PHSYMM_A}")
+fi
 if [ "${RK_ADAPT}" != "0" ]; then CMD+=(--rk-adapt); fi
 if [ "${SKIP_EXISTING}" != "0" ]; then CMD+=(--skip-existing); fi
 

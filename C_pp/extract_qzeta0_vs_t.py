@@ -19,12 +19,13 @@ import numpy as np
 from extract_qx_vs_t import parse_it_name
 
 
-INIT_STATES = ("neel", "beta", "beta_lr", "vac_fill", "vac_infty", "mixed_neel", "phsymm", "phsymm_odd")
+INIT_STATES = ("neel", "neel_even", "beta", "beta_lr", "vac_fill", "vac_infty", "mixed_neel", "phsymm", "phsymm_odd")
 
 
 def build_base_name(info, num_pairs):
     prefix = {
         "neel": "GHD_QZ0_NEEL",
+        "neel_even": "GHD_QZ0_NEEL_EVEN",
         "beta": "GHD_QZ0_Beta",
         "beta_lr": "GHD_QZ0_betaLR",
         "vac_fill": "GHD_QZ0_VAC_FILL",

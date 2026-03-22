@@ -19,7 +19,7 @@ for p in (repo_root, here):
         sys.path.append(p)
 
 
-INIT_STATES = ("neel", "beta", "beta_lr", "vac_fill", "mixed_neel", "vac_infty", "phsymm", "phsymm_odd")
+INIT_STATES = ("neel", "neel_even", "beta", "beta_lr", "vac_fill", "mixed_neel", "vac_infty", "phsymm", "phsymm_odd")
 J_HOP = 1.0
 
 
@@ -100,6 +100,11 @@ def csv_outpath(base_outdir, meta, r, sign):
             csv_dir,
             f"GHD_vac_fill_r{r}_s_{s_off}_sign{sign}_gamma{g:.2f}_T{T}_N{N}.csv",
         )
+    if state == "neel_even":
+        return os.path.join(
+            csv_dir,
+            f"GHD_IT_NEEL_EVEN_r{r}_s_{s_off}_sign{sign}_gamma{g:.2f}_T{T}_N{N}.csv",
+        )
     if state == "mixed_neel":
         return os.path.join(
             csv_dir,
@@ -148,6 +153,8 @@ def title_for(meta, r, sign, a_sites, b_sites):
         return rf"$\beta_L={meta['betaL']},\ \beta_R={meta['betaR']},\ A={a_label},\ B={b_label},\ \gamma={g},\ T={T},\ N={N},\ r={r},\ \mathrm{{sign}}={sign}$"
     if state == "vac_fill":
         return rf"$\mathrm{{Vac/Fill}},\ A={a_label},\ B={b_label},\ \gamma={g},\ T={T},\ N={N},\ r={r},\ \mathrm{{sign}}={sign}$"
+    if state == "neel_even":
+        return rf"$\mathrm{{Vacuum\ Neel\ even}},\ A={a_label},\ B={b_label},\ \gamma={g},\ T={T},\ N={N},\ r={r},\ \mathrm{{sign}}={sign}$"
     if state == "mixed_neel":
         return rf"$\mathrm{{Mixed\ Neel}},\ A={a_label},\ B={b_label},\ \gamma={g},\ T={T},\ N={N},\ r={r},\ \mathrm{{sign}}={sign}$"
     if state == "vac_infty":
