@@ -18,10 +18,9 @@ for p in (repo_root, here):
     if p not in sys.path:
         sys.path.append(p)
 
-from main_dynamics_it import qp_symm, qm_symm, jp_symm, jm_symm
-
 
 INIT_STATES = ("neel", "beta", "beta_lr", "vac_fill", "mixed_neel", "vac_infty", "phsymm", "phsymm_odd")
+J_HOP = 1.0
 
 
 def parse_list(s, cast=float):
@@ -162,13 +161,52 @@ def title_for(meta, r, sign, a_sites, b_sites):
     return rf"$\beta={meta['beta']},\ A={a_label},\ B={b_label},\ \gamma={g},\ T={T},\ N={N},\ r={r},\ \mathrm{{sign}}={sign}$"
 
 
+def get_elem(C, i, j, bc):
+    N = C.shape[0]
+    ii = int(i)
+    jj = int(j)
+    if bc and bc[0].lower() == "p":
+        return C[ii % N, jj % N]
+    if 0 <= ii < N and 0 <= jj < N:
+        return C[ii, jj]
+    return 0.0 + 0.0j
+
+
+def qp_left(r, x, C, bc="pbc", J=J_HOP):
+    return J * (get_elem(C, x, x + r, bc) + get_elem(C, x + r, x, bc))
+
+
+def qm_left(r, x, C, bc="pbc", J=J_HOP):
+    return 1j * J * (get_elem(C, x, x + r, bc) - get_elem(C, x + r, x, bc))
+
+
+def jp_left(r, x, C, bc="pbc", J=J_HOP):
+    J_sq = J**2
+    return 1j * J_sq * (
+        get_elem(C, x + 1, x + r, bc)
+        - get_elem(C, x, x + r + 1, bc)
+        + get_elem(C, x + r + 1, x, bc)
+        - get_elem(C, x + r, x + 1, bc)
+    )
+
+
+def jm_left(r, x, C, bc="pbc", J=J_HOP):
+    J_sq = J**2
+    return -J_sq * (
+        get_elem(C, x + 1, x + r, bc)
+        - get_elem(C, x, x + r + 1, bc)
+        - get_elem(C, x + r + 1, x, bc)
+        + get_elem(C, x + r, x + 1, bc)
+    )
+
+
 def compute_profiles(C_t, xs, r, sign):
     if sign == "-":
-        q_vals = np.array([np.real(qm_symm(r, x, C_t, "open")) for x in xs])
-        j_vals = np.array([np.real(jm_symm(r, x, C_t, "open")) for x in xs])
+        q_vals = np.array([np.real(qm_left(r, x, C_t, "open")) for x in xs])
+        j_vals = np.array([np.real(jm_left(r, x, C_t, "open")) for x in xs])
     else:
-        q_vals = np.array([np.real(qp_symm(r, x, C_t, "open")) for x in xs])
-        j_vals = np.array([np.real(jp_symm(r, x, C_t, "open")) for x in xs])
+        q_vals = np.array([np.real(qp_left(r, x, C_t, "open")) for x in xs])
+        j_vals = np.array([np.real(jp_left(r, x, C_t, "open")) for x in xs])
     return q_vals, j_vals
 
 

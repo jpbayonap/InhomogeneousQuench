@@ -205,6 +205,103 @@ def symmetry_report(c, pairs, tol=1e-8):
     return rows, plus_over_t, minus_over_t
 
 
+def t_rl_closed_form(r, l, J=1.0):
+    """
+    Closed-form value of
+
+      T_{r,l} = ∫_0^∞ ds [ G_{Δ,Δ+r-l}(s) - G_{Δ-l,Δ+r}(s) ]
+
+    for odd positive r,l with
+      r = 2p+1, l = 2q+1
+
+      T_{r,l} = (2 / (π J)) * sum_{m=-p}^{p} 1 / (2(q-m)+1).
+
+    The result is independent of Δ.
+    """
+    if r <= 0 or l <= 0 or r % 2 == 0 or l % 2 == 0:
+        raise ValueError("t_rl_closed_form requires odd positive r and l.")
+    p = (r - 1) // 2
+    q = (l - 1) // 2
+    acc = 0.0
+    for m in range(-p, p + 1):
+        acc += 1.0 / (2 * (q - m) + 1)
+    return (2.0 / (np.pi * J)) * acc
+
+
+def oriented_cross_pairs(pairs):
+    """
+    Keep one orientation only, ordered from left to right (x<y).
+    """
+    return [(x, y) for (x, y) in pairs if x < y]
+
+
+def build_trl_rows(max_sep, J=1.0):
+    rows = []
+    for r in range(1, max_sep + 1, 2):
+        for l in range(1, max_sep + 1, 2):
+            rows.append({
+                "r": r,
+                "l": l,
+                "T_rl": t_rl_closed_form(r, l, J=J),
+            })
+    return rows
+
+
+def build_final_result_rows(c, a, pairs, gamma, J=1.0):
+    """
+    Build a late-time check of
+
+      C_{x,x+r}(∞) = C^free_{x,x+r}(∞) - γ F(r),
+
+    using the last available time slice as a proxy for t→∞.
+
+    Here
+      F(r) = (1/2) * sum_{(y,y+l) in S_A, l odd} C_{y,y+l}(∞) T_{r,l}.
+    """
+    pair_to_idx = {p: i for i, p in enumerate(pairs)}
+    lr_pairs = oriented_cross_pairs(pairs)
+    c_inf = c[:, -1]
+    a_inf = a[:, -1]
+
+    max_sep = max((y - x) for (x, y) in lr_pairs)
+    odd_seps = list(range(1, max_sep + 1, 2))
+
+    F_by_r = {}
+    for r in odd_seps:
+        acc = 0.0 + 0.0j
+        for x, y in lr_pairs:
+            l = y - x
+            if l % 2 == 0:
+                continue
+            acc += c_inf[pair_to_idx[(x, y)]] * t_rl_closed_form(r, l, J=J)
+        F_by_r[r] = 0.5 * acc
+
+    rows = []
+    for x, y in lr_pairs:
+        r = y - x
+        if r % 2 == 0:
+            continue
+        idx = pair_to_idx[(x, y)]
+        F_r = F_by_r[r]
+        rhs = a_inf[idx] - gamma * F_r
+        residual = c_inf[idx] - rhs
+        rows.append({
+            "x": x,
+            "y": y,
+            "r": r,
+            "C_inf_real": np.real(c_inf[idx]),
+            "C_inf_imag": np.imag(c_inf[idx]),
+            "C_free_real": np.real(a_inf[idx]),
+            "C_free_imag": np.imag(a_inf[idx]),
+            "F_r_real": np.real(F_r),
+            "F_r_imag": np.imag(F_r),
+            "rhs_real": np.real(rhs),
+            "rhs_imag": np.imag(rhs),
+            "residual_abs": np.abs(residual),
+        })
+    return rows, F_by_r
+
+
 def run_case(
     J=1.0,
     gamma=1.0,
@@ -234,6 +331,8 @@ def run_case(
     tag = f"n{n_sites}_J{J}_g{gamma}_tmax{tmax}_dt{dt}_{free_mode}"
     csv_c = outdir / f"volterra_2sites_C_{tag}.csv"
     csv_sym = outdir / f"volterra_2sites_symmetry_{tag}.csv"
+    csv_trl = outdir / f"volterra_Trl_{tag}.csv"
+    csv_final = outdir / f"volterra_final_result_{tag}.csv"
     pair_pngs = []
 
     data = {"t": t}
@@ -243,6 +342,13 @@ def run_case(
     pd.DataFrame(data).to_csv(csv_c, index=False)
 
     pd.DataFrame(sym_rows).to_csv(csv_sym, index=False)
+
+    max_sep = max((abs(y - x) for (x, y) in pairs), default=0)
+    trl_rows = build_trl_rows(max_sep, J=J)
+    pd.DataFrame(trl_rows).to_csv(csv_trl, index=False)
+
+    final_rows, F_by_r = build_final_result_rows(c, a, pairs, gamma, J=J)
+    pd.DataFrame(final_rows).to_csv(csv_final, index=False)
 
     # One figure per transpose pair: left panel Re, right panel Im.
     n_pairs = len(pairs) // 2
@@ -275,6 +381,8 @@ def run_case(
 
     print("Saved:", csv_c)
     print("Saved:", csv_sym)
+    print("Saved:", csv_trl)
+    print("Saved:", csv_final)
     for png_path in pair_pngs:
         print("Saved:", png_path)
     print("Pairs order:", pairs)
@@ -287,6 +395,8 @@ def run_case(
             f"max|c-conj(cT)|={row['max_abs_cxy_minus_conj_cyx']:.3e}, "
             f"best={row['best_relation']}"
         )
+    for r in sorted(F_by_r):
+        print(f"F({r}) = {F_by_r[r]}")
 
 
 def main():
