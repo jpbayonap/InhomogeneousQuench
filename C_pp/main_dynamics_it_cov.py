@@ -507,11 +507,21 @@ def main():
             C = v.reshape(n, n)
             out = np.zeros_like(C)
 
-            # i H C with H_{j,j±1} = -1 for the open nearest-neighbor chain.
+            # Hamiltonian part: i[H, C] = i H C - i C H, with H_{j,j±1} = -1.
+            #
+            # Left multiplication, i H C:
+            #   (i H C)_{i,j} = -i C_{i-1,j} - i C_{i+1,j}.
+            # The shifted destinations implement these terms directly:
+            #   out[1:, :]  += -i * C[:-1, :]  -> out[i, j] += -i C[i-1, j]
+            #   out[:-1, :] += -i * C[1:,  :]  -> out[i, j] += -i C[i+1, j]
             out[1:, :] += hop_left * C[:-1, :]
             out[:-1, :] += hop_left * C[1:, :]
 
-            # C (-i H) = C h_cond^\dagger
+            # Right multiplication, -i C H:
+            #   (-i C H)_{i,j} = +i C_{i,j-1} + i C_{i,j+1}.
+            # Again the column-shifted destinations encode the neighbors:
+            #   out[:, 1:]  += +i * C[:, :-1] -> out[i, j] += +i C[i, j-1]
+            #   out[:, :-1] += +i * C[:, 1: ] -> out[i, j] += +i C[i, j+1]
             out[:, 1:] += hop_right * C[:, :-1]
             out[:, :-1] += hop_right * C[:, 1:]
 
