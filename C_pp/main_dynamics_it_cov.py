@@ -464,7 +464,8 @@ def main():
         if check_proj_row:
             describe_proj_row(P_row, a, b, N)
             return 0
-        pr_rows, pr_cols = P_row.nonzero()
+        cross_a = slice(a_start, center)
+        cross_b = slice(center, b_end)
 
         C0, local_betaL, local_betaR = build_initial_covariance(
             init_state=init_state,
@@ -496,17 +497,27 @@ def main():
 
         C0 = np.asarray(C0, dtype=work_dtype)
         vecC0_flat = np.asarray(mat2vec(C0), dtype=work_dtype).reshape(-1)
-        h_cond = (1j * H).astype(work_dtype, copy=False).tocsr()
-        h_cond_dag = h_cond.conjugate().transpose().tocsr()
         gamma_work = work_dtype(g)
+        hop_left = work_dtype(-1j)
+        hop_right = work_dtype(1j)
 
         def matvec(v):
             v = np.asarray(v, dtype=work_dtype).reshape(-1)
             n = int(np.sqrt(v.size))
             C = v.reshape(n, n)
-            out = np.asarray(h_cond @ C, dtype=work_dtype)
-            out += np.asarray(C @ h_cond_dag, dtype=work_dtype)
-            out[pr_rows, pr_cols] -= gamma_work * C[pr_rows, pr_cols]
+            out = np.zeros_like(C)
+
+            # i H C with H_{j,j±1} = -1 for the open nearest-neighbor chain.
+            out[1:, :] += hop_left * C[:-1, :]
+            out[:-1, :] += hop_left * C[1:, :]
+
+            # C (-i H) = C h_cond^\dagger
+            out[:, 1:] += hop_right * C[:, :-1]
+            out[:, :-1] += hop_right * C[:, 1:]
+
+            # Dephasing acts only on the A-B and B-A blocks.
+            out[cross_a, cross_b] -= gamma_work * C[cross_a, cross_b]
+            out[cross_b, cross_a] -= gamma_work * C[cross_b, cross_a]
             return out.reshape(-1)
 
         a_label = f"[{a[0]}, {a[-1]}]"
@@ -524,11 +535,28 @@ def main():
                 local_rk_steps = max(local_rk_steps, int(np.ceil(T / args.rk_dt_max)))
 
             def rk_step(v, dt):
-                k1 = matvec(v)
-                k2 = matvec(v + 0.5 * dt * k1)
-                k3 = matvec(v + 0.5 * dt * k2)
-                k4 = matvec(v + dt * k3)
-                return v + (dt / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
+                stage = matvec(v)
+                accum = stage.copy()
+                trial = np.empty_like(v)
+
+                np.multiply(stage, 0.5 * dt, out=trial)
+                trial += v
+                stage = matvec(trial)
+                accum += 2.0 * stage
+
+                np.multiply(stage, 0.5 * dt, out=trial)
+                trial += v
+                stage = matvec(trial)
+                accum += 2.0 * stage
+
+                np.multiply(stage, dt, out=trial)
+                trial += v
+                stage = matvec(trial)
+                accum += stage
+
+                np.multiply(accum, dt / 6.0, out=trial)
+                trial += v
+                return trial
 
             if args.rk_adapt:
                 t = 0.0
@@ -592,9 +620,13 @@ def main():
         print(f"wrote {outpath}")
         return 0
 
-    Parallel(n_jobs=args.n_jobs)(
-        delayed(run_task)(s, s_off, g, T) for (s, s_off, g, T) in tasks
-    )
+    if args.n_jobs == 1:
+        for s, s_off, g, T in tasks:
+            run_task(s, s_off, g, T)
+    else:
+        Parallel(n_jobs=args.n_jobs)(
+            delayed(run_task)(s, s_off, g, T) for (s, s_off, g, T) in tasks
+        )
 
 
 if __name__ == "__main__":
