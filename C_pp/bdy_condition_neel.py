@@ -16,6 +16,7 @@ python3 bdy_condition_neel.py \
   --gammas "0.5 1.0" \
   --times "100 150 200 250 300 400" \
   --r 3 \
+  --delta 5\
   --sign - \
   --x-rel 0
 
@@ -37,27 +38,34 @@ for p in (repo_root, here):
 from profiles_from_cov_it import *
 
 
-def compute_point(C_t, x_center, r, gamma, sign):
+def compute_point(C_t, delta , x_center, r, gamma, sign):
     if sign == "-":
-        q_center = float(np.real(qm_left(r, x_center, C_t, "open")))
-        j_r = float(np.real(jm_left(r, x_center +1, C_t, "open")))
-        j_l = float(np.real(jm_left(r, x_center -1, C_t, "open")))
+        x_array= np.arange(-r+1,1) + x_center
+        q_center = float(np.sum([np.real(qm_left(r, x, C_t, "open")) for x in x_array]))
+        j_r = float(np.real(jm_left(r, x_center +delta, C_t, "open")))
+        j_l = float(np.real(jm_left(r, x_center -delta, C_t, "open")))
+        q_l = float(np.real(qm_left(r, x_center -delta, C_t, "open")))
+        q_r = float(np.real(qm_left(r, x_center +delta, C_t, "open")))
         Delta_j= j_r -j_l
         rhs_term= gamma*q_center
+        q_l = r*gamma*q_l
+        q_r = r*gamma*q_r
         error_bdy= np.abs(Delta_j + rhs_term)
+        error_l = np.abs( Delta_j + q_l)
+        error_r = np.abs( Delta_j + q_r)
     else:
         return
-    return Delta_j, rhs_term, error_bdy
+    return Delta_j, rhs_term, q_l , q_r, error_bdy, error_l, error_r
 
 
-def base_name(meta0, x_rel, r, sign):
+def base_name(meta0, x_rel, delta, r, sign):
     prefix = {
         "neel": "GHD_BDY_NEEL_COV",
         "neel_even": "GHD_BDY_NEEL_even_COV",
         "vac_fill": "GHD_BDY_fill_COV"
     }[meta0["init_state"]]
     return (
-        f"{prefix}_x{x_rel}_r{r}_s_{meta0['s_offset']}_sign{sign}"
+        f"{prefix}_x{x_rel}_delta{delta}_r{r}_s_{meta0['s_offset']}_sign{sign}"
         f"_gamma{meta0['gamma']:.2f}_N{meta0['N']}"
     )
 
@@ -72,6 +80,7 @@ def main():
     ap.add_argument("--gammas", type=str, required=True, help="Comma/space-separated gamma values")
     ap.add_argument("--times", type=str, default=None, help="Optional comma/space-separated times")
     ap.add_argument("--r", type=int, required=True)
+    ap.add_argument("--delta", type=int, required=True)
     ap.add_argument("--sign", type=str, required=True, choices=["+", "-"])
     ap.add_argument("--x-rel", type=int, default=0, help="Interface-centered coordinate x-(center-1)")
     ap.add_argument("--beta", type=float, default=None)
@@ -112,9 +121,10 @@ def main():
             x_center = (center - 1) + args.x_rel
             if x_center < 0 or x_center >= meta["N"]:
                 raise SystemExit(f"x-rel={args.x_rel} is outside valid range for N={meta['N']}.")
-            delta_j, rhs_term, error_bdy = compute_point(C_t, x_center, args.r, meta["gamma"], args.sign)
+            delta_j, rhs_term, q_l, q_r, error_bdy, error_l, error_r = compute_point(C_t, args.delta, x_center, args.r, meta["gamma"], args.sign)
             zeta_val = float(x_center - (center - 1)) / float(meta["time"])
-            rows.append((meta["time"], zeta_val, delta_j, rhs_term, error_bdy, meta))
+            rows.append((meta["time"], zeta_val, delta_j, rhs_term, error_bdy, q_l, error_l, q_r, error_r, meta))
+
 
     # Sort by time rows[0]
     rows.sort(key=lambda item: item[0])
@@ -123,34 +133,45 @@ def main():
     delta_j = np.array([r[2] for r in rows], dtype=float)
     rhs_term = np.array([r[3] for r in rows], dtype=float)
     error_bdy = np.array([r[4] for r in rows], dtype=float)
+    q_l = np.array([r[5] for r in rows], dtype=float)
+    error_l = np.array([r[6] for r in rows], dtype=float)
+    q_r = np.array([r[7] for r in rows], dtype=float)
+    error_r = np.array([r[8] for r in rows], dtype=float)
     # metadata dictionary from the first row after sorting. 
-    meta0 = rows[0][5]
+    meta0 = rows[0][9]
     x_center0 = (meta0["center"]-1) + args.x_rel
 
+
     os.makedirs(args.outdir, exist_ok=True)
-    base = base_name(meta0, args.x_rel, args.r, args.sign)
+    base = base_name(meta0, args.x_rel, args.delta, args.r, args.sign)
     out_csv = os.path.join(args.outdir, base + ".csv")
     out_png = os.path.join(args.outdir, base + ".png")
 
     np.savetxt(
         out_csv,
-        np.column_stack([t_axis, zeta_axis, delta_j, rhs_term,  error_bdy]),
+        np.column_stack([t_axis, zeta_axis, delta_j, rhs_term,  error_bdy, q_l, error_l, q_r, error_r]),
         delimiter=",",
-        header="time,zeta_at_x,delta_j,rhs_term,error_bdy",
+        header="time,zeta_at_x,delta_j,rhs_term,error_bdy,q_l,error_l,q_r,error_r",
         comments="",
     )
 
     fig, axes = plt.subplots(2, 1, figsize=(10, 6.2), sharex=True)
-    axes[0].scatter(t_axis, error_bdy, color="tab:blue", s=8.8)
-    axes[1].scatter(t_axis, abs(delta_j), color="tab:green", s=8.8, marker="s", label= r"$|\Delta J|$")
-    axes[1].scatter(t_axis, abs(rhs_term), color="tab:red", s=8.8, marker="^", label =r"$|\gamma q_0|$")
+    axes[0].scatter(t_axis, error_bdy, color="tab:blue", label=r"$log|\Delta J^{(r,-)} +\gamma \sum_{x=-r+1}^0q^{(r,-)}_x|$", s=8.8)
+    axes[0].scatter(t_axis, error_l, color="tab:green", label =r"$log|\Delta J^{(r,-)} +r q^{(r,-)}_{-\delta}|$",s=8.8)
+    axes[0].scatter(t_axis, error_r, color="tab:orange", label =r"$log|\Delta J^{(r,-)} +r q^{(r,-)}_{+\delta}|$",s=8.8)
+    axes[1].scatter(t_axis, abs(delta_j), color="tab:green", s=8.8, marker="s", label= r"$|\Delta J^{(r,-)}|$")
+    axes[1].scatter(t_axis, abs(rhs_term), color="tab:red", s=8.8, marker="^", label =r"$|\gamma \sum_{x=-r+1}^0q^{(r,-)}_x|$")
+    axes[1].scatter(t_axis, abs(q_l), color="tab:blue", s=8.8, marker="x", label =r"$|r q^{(r,-)}_{-\delta}|$")
+    axes[1].scatter(t_axis, abs(q_r), color="tab:orange", s=8.8, marker="o", label =r"$|r q^{(r,-)}_{+\delta}|$")
     for ax in axes:
         ax.set_xlabel(r"$t$")
         ax.grid(True, alpha=0.25)
-    axes[0].set_ylabel(r"$log|\Delta J - \gamma q_0|$")
+    
     axes[0].set_yscale("log")
-    plt.legend()
-    fig.suptitle(rf"$x_0={x_center0},\ r={args.r},\ \mathrm{{sign}}={args.sign},\ \gamma={meta0['gamma']},\ N={meta0['N']}$")
+    axes[0].legend()
+    axes[1].legend()
+
+    fig.suptitle(rf"$x_0={x_center0},\ \delta={args.delta},\ r={args.r},\ \mathrm{{sign}}={args.sign},\ \gamma={meta0['gamma']},\ N={meta0['N']}$")
     fig.tight_layout()
     fig.savefig(out_png, dpi=220, bbox_inches="tight")
     plt.close(fig)

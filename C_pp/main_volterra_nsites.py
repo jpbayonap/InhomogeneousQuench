@@ -47,7 +47,7 @@ def build_regions(n_sites):
 
 def propagator(dx, t, J=1.0):
     """Free single-particle propagator on infinite tight-binding chain."""
-    return np.power(1j, dx) * jv(dx, 2.0 * J * t)
+    return np.power(-1j, dx) * jv(dx, 2.0 * J * t)
 
 
 def green_2body(dx, dy, t, J=1.0):
@@ -61,8 +61,15 @@ def green_2body(dx, dy, t, J=1.0):
 def c_free_half_neel_pair(x, y, t, J=1.0, nmax_extra=40):
     
     """
-    Free C_{x,y}(t) for half-vacuum/half-Neel initial state:
-      occupied sites are odd j >= 1.
+    Free C_{x,y}(t) for the half-vacuum / half-Neel state matched to
+    main_dynamics_it_cov.py with init_state="neel".
+
+    In the centered Volterra coordinate used here:
+      - x = 0 is the last site on the left half
+      - x = 1 is the first site on the right half
+
+    The covariance code's "neel" state occupies absolute sites L+1, L+3, ...
+    which correspond here to centered sites x = 2, 4, 6, ...
 
     """
 
@@ -71,7 +78,7 @@ def c_free_half_neel_pair(x, y, t, J=1.0, nmax_extra=40):
     jmax = int(np.ceil(zmax + nmax_extra)) + 2
 
     acc = np.zeros_like(t, dtype=np.complex128)
-    for j in range(1, jmax + 1, 2):
+    for j in range(2, jmax + 1, 2):
         ux = propagator(x - j, t, J=J)
         uy = propagator(y - j, t, J=J)
         acc += ux * np.conjugate(uy)
@@ -108,11 +115,178 @@ def build_kernel_tensor(pairs, t, J=1.0):
     # Resulting kernel has shape (Nt, M, M).
     tt = t[:, None, None]
 
-    # Use your requested form explicitly:
-    # G_{a,b}(t) = conjugate[ (-i)^a i^b J_a(2Jt) J_b(2Jt) ].
+    # Use the convention matched to the free equation:
+    # G_{a,b}(t) = (-i)^a i^b J_a(2Jt) J_b(2Jt).
     phase = np.power(-1j, dx)[None, :, :] * np.power(1j, dy)[None, :, :]
     bess = jv(dx[None, :, :], 2.0 * J * tt) * jv(dy[None, :, :], 2.0 * J * tt)
-    return np.conjugate(phase * bess)
+    return phase * bess
+
+def build_qm_free(xs, r, t, J=1.0, nmax_extra=40):
+    xs = np.asarray(xs, dtype=int)
+    t = np.asarray(t, dtype=float)
+
+    q_free = np.zeros((xs.size, t.size), dtype=np.complex128)
+    for ix, x in enumerate(xs):
+        cp = c_free_half_neel_pair(x, x + r, t, J=J, nmax_extra=nmax_extra)
+        cm = c_free_half_neel_pair(x + r, x, t, J=J, nmax_extra=nmax_extra)
+        q_free[ix, :] = 1j * J * (cp - cm)
+
+    return q_free
+
+
+def build_q_kernel(xs, r, source_pairs, t, J=1.0):
+    xs = np.asarray(xs, dtype=int)
+    t = np.asarray(t, dtype=float)
+
+    Nt = t.size
+    Nx = xs.size
+    Msrc = len(source_pairs)
+
+    # Direct Duhamel kernel in the ordered-pair basis used by c(t):
+    #   q_x^(r,-) = iJ [C_{x,x+r} - C_{x+r,x}]
+    # and
+    #   C = C_free - gamma * ∫ G * C
+    # so q = q_free - gamma * ∫ Kq * c with
+    #   Kq = +iJ [ G_{x-m, x+r-n} - G_{x+r-m, x-n} ].
+    Kq = np.zeros((Nt, Nx, Msrc), dtype=np.complex128)
+    for j, (m, n) in enumerate(source_pairs):
+        for ix, x in enumerate(xs):
+            Kq[:, ix, j] = 1j * J * (
+                green_2body(x - m, x + r - n, t, J=J)
+                - green_2body(x + r - m, x - n, t, J=J)
+            )
+    return Kq
+
+
+def reconstruct_q_trap(t, q_free, Kq, c_src, gamma):
+    t = np.asarray( t, dtype=float)
+    dt = t[1]- t[0]
+    Nt = t.size
+    Nx = q_free.shape[0]
+
+    q = np.zeros( (Nx, Nt), dtype = np.complex128)
+    q[:,0] = q_free[:,0]
+
+    for i in range(1, Nt):
+        conv_hist = np.zeros(Nx, dtype=np.complex128)
+
+        if i >1: 
+            for k in range (1,i):
+                conv_hist += Kq[i-k]@ c_src[:, k]
+
+        q[:,i] = q_free[:, i] - gamma *dt * (0.5 *(Kq[i] @ c_src[:,0]) 
+                                             + conv_hist
+                                             + 0.5 * (Kq[0] @ c_src[:,i]) 
+                                             )
+    return q
+
+
+def quadrature_weights(i, scheme):
+    """
+    Return uniform-grid quadrature weights w_k for k=0..i such that
+
+      ∫_0^{t_i} f(s) ds ≈ dt * sum_{k=0}^i w_k f(t_k)
+
+    Supported schemes:
+      - trap
+      - simpson
+
+    For simpson:
+      - i = 1: trapezoid
+      - i even: composite Simpson
+      - i odd >= 3: Simpson on [0, t_{i-3}] plus Simpson 3/8 on [t_{i-3}, t_i]
+    """
+    if i < 1:
+        raise ValueError("quadrature_weights requires i >= 1")
+
+    if scheme == "trap":
+        w = np.ones(i + 1, dtype=float)
+        w[0] = 0.5
+        w[-1] = 0.5
+        return w
+
+    if scheme != "simpson":
+        raise ValueError(f"Unsupported quadrature scheme: {scheme}")
+
+    if i == 1:
+        return quadrature_weights(i, "trap")
+
+    w = np.zeros(i + 1, dtype=float)
+    if i % 2 == 0:
+        # Composite Simpson over the full interval.
+        w[0] = 1.0 / 3.0
+        w[i] = 1.0 / 3.0
+        for k in range(1, i):
+            w[k] = (4.0 / 3.0) if (k % 2 == 1) else (2.0 / 3.0)
+        return w
+
+    # Odd number of subintervals:
+    # Simpson on [0, t_{i-3}] and 3/8 on [t_{i-3}, t_i].
+    j = i - 3
+    if j >= 2:
+        w[0] += 1.0 / 3.0
+        w[j] += 1.0 / 3.0
+        for k in range(1, j):
+            w[k] += (4.0 / 3.0) if (k % 2 == 1) else (2.0 / 3.0)
+
+    w[i - 3] += 3.0 / 8.0
+    w[i - 2] += 9.0 / 8.0
+    w[i - 1] += 9.0 / 8.0
+    w[i] += 3.0 / 8.0
+    return w
+
+
+def solve_volterra_vector_simpson(t, a, K, gamma):
+    """
+    Higher-accuracy Volterra solve on a uniform grid.
+    Uses composite Simpson on even steps and Simpson+3/8 on odd steps.
+    """
+    t = np.asarray(t, dtype=float)
+    dt = t[1] - t[0]
+    Nt = t.size
+    M = a.shape[0]
+
+    c = np.zeros((M, Nt), dtype=np.complex128)
+    c[:, 0] = a[:, 0]
+
+    eye = np.eye(M, dtype=np.complex128)
+
+    for i in range(1, Nt):
+        w = quadrature_weights(i, "simpson")
+        hist = np.zeros(M, dtype=np.complex128)
+        for k in range(i):
+            hist += w[k] * (K[i - k] @ c[:, k])
+
+        A_step = eye + gamma * dt * w[i] * K[0]
+        rhs = a[:, i] - gamma * dt * hist
+        c[:, i] = np.linalg.solve(A_step, rhs)
+
+    return c
+
+
+def reconstruct_q_simpson(t, q_free, Kq, c_src, gamma):
+    """
+    Higher-accuracy explicit reconstruction of q from the solved source history.
+    Uses composite Simpson on even steps and Simpson+3/8 on odd steps.
+    """
+    t = np.asarray(t, dtype=float)
+    dt = t[1] - t[0]
+    Nt = t.size
+    Nx = q_free.shape[0]
+
+    q = np.zeros((Nx, Nt), dtype=np.complex128)
+    q[:, 0] = q_free[:, 0]
+
+    for i in range(1, Nt):
+        w = quadrature_weights(i, "simpson")
+        hist = np.zeros(Nx, dtype=np.complex128)
+        for k in range(i + 1):
+            hist += w[k] * (Kq[i - k] @ c_src[:, k])
+        q[:, i] = q_free[:, i] - gamma * dt * hist
+
+    return q
+
+
 
 
 def solve_volterra_vector_trap(t, a, K, gamma):
@@ -310,6 +484,12 @@ def run_case(
     free_mode="half_neel",
     nmax_extra=40,
     n_sites=1,
+    profile_r=None,
+    profile_delta=None,
+    profile_x_center=0,
+    save_final_check=False,
+    save_pair_plots=False,
+    quad="simpson",
     outdir=None,
 ):
     if outdir is None:
@@ -321,7 +501,29 @@ def run_case(
     t = np.arange(0.0, tmax + 1e-12, dt)
     a = build_free_terms(pairs, t, free_mode=free_mode, J=J, nmax_extra=nmax_extra)
     K = build_kernel_tensor(pairs, t, J=J)
-    c = solve_volterra_vector_trap(t, a, K, gamma)
+    if quad == "simpson":
+        c = solve_volterra_vector_simpson(t, a, K, gamma)
+    elif quad == "trap":
+        c = solve_volterra_vector_trap(t, a, K, gamma)
+    else:
+        raise ValueError(f"Unsupported quad scheme: {quad}")
+
+    q = None
+    xs_q = None
+    delta_q = profile_delta
+    if profile_r is not None:
+        if delta_q is None:
+            delta_q = n_sites
+        if delta_q < 0:
+            raise ValueError("profile_delta must be >= 0.")
+
+        xs_q = np.arange(profile_x_center - delta_q, profile_x_center + delta_q + 1, dtype=int)
+        q_free = build_qm_free(xs_q, profile_r, t, J=J, nmax_extra=nmax_extra)
+        Kq = build_q_kernel(xs_q, profile_r, pairs, t, J=J)
+        if quad == "simpson":
+            q = reconstruct_q_simpson(t, q_free, Kq, c, gamma)
+        else:
+            q = reconstruct_q_trap(t, q_free, Kq, c, gamma)
 
     sym_rows, _, _ = symmetry_report(c, pairs)
 
@@ -331,8 +533,10 @@ def run_case(
     tag = f"n{n_sites}_J{J}_g{gamma}_tmax{tmax}_dt{dt}_{free_mode}"
     csv_c = outdir / f"volterra_2sites_C_{tag}.csv"
     csv_sym = outdir / f"volterra_2sites_symmetry_{tag}.csv"
-    csv_trl = outdir / f"volterra_Trl_{tag}.csv"
-    csv_final = outdir / f"volterra_final_result_{tag}.csv"
+    csv_trl = None
+    csv_final = None
+    csv_q_profile = None
+    png_q_profile = None
     pair_pngs = []
 
     data = {"t": t}
@@ -343,46 +547,89 @@ def run_case(
 
     pd.DataFrame(sym_rows).to_csv(csv_sym, index=False)
 
-    max_sep = max((abs(y - x) for (x, y) in pairs), default=0)
-    trl_rows = build_trl_rows(max_sep, J=J)
-    pd.DataFrame(trl_rows).to_csv(csv_trl, index=False)
+    F_by_r = {}
+    if save_final_check:
+        csv_trl = outdir / f"volterra_Trl_{tag}.csv"
+        csv_final = outdir / f"volterra_final_result_{tag}.csv"
 
-    final_rows, F_by_r = build_final_result_rows(c, a, pairs, gamma, J=J)
-    pd.DataFrame(final_rows).to_csv(csv_final, index=False)
+        max_sep = max((abs(y - x) for (x, y) in pairs), default=0)
+        trl_rows = build_trl_rows(max_sep, J=J)
+        pd.DataFrame(trl_rows).to_csv(csv_trl, index=False)
 
-    # One figure per transpose pair: left panel Re, right panel Im.
-    n_pairs = len(pairs) // 2
-    for i in range(n_pairs):
-        x, y = pairs[i]
-        yt, xt = pairs[i + n_pairs]
-        fig, axes = plt.subplots(1, 2, figsize=(12, 4.8), sharex=True)
+        final_rows, F_by_r = build_final_result_rows(c, a, pairs, gamma, J=J)
+        pd.DataFrame(final_rows).to_csv(csv_final, index=False)
 
-        axes[0].plot(t, np.real(c[i]), lw=1.4, label=f"Re C({x},{y})")
-        axes[0].plot(t, np.real(c[i + n_pairs]), ls="--", lw=1.2, label=f"Re C({yt},{xt})")
-        axes[0].set_xlabel("t")
-        axes[0].set_ylabel("Re C")
-        axes[0].grid(True, alpha=0.3)
-        axes[0].legend(fontsize=12)
+    if q is not None:
+        t_last = float(t[-1])
+        zeta_q = xs_q / t_last if t_last != 0.0 else np.zeros_like(xs_q, dtype=float)
+        q_last = np.real(q[:, -1])
 
-        axes[1].plot(t, np.imag(c[i]), lw=1.4, label=f"Im C({x},{y})")
-        axes[1].plot(t, -np.imag(c[i + n_pairs]), ls="--", lw=1.2, label=f"-Im C({yt},{xt})")
-        axes[1].set_xlabel("t")
-        axes[1].set_ylabel("Im C")
-        axes[1].grid(True, alpha=0.3)
-        axes[1].legend(fontsize=12)
+        csv_q_profile = outdir / (
+            f"volterra_qm_profile_x{profile_x_center}_r{profile_r}_delta{delta_q}_{tag}.csv"
+        )
+        pd.DataFrame({
+            "x": xs_q,
+            "q": q_last,
+            "zeta": zeta_q,
+            "time": np.full(xs_q.shape, t_last, dtype=float),
+            "gamma": np.full(xs_q.shape, gamma, dtype=float),
+        }).to_csv(csv_q_profile, index=False)
 
-        fig.suptitle(f"Pair comparison: ({x},{y}) vs ({yt},{xt}), gamma={gamma}, free={free_mode}")
+        fig, ax = plt.subplots(figsize=(7.2, 4.8))
+        ax.scatter(xs_q, q_last, s=18, c="tab:blue", marker="o", label=r"$q^{(r,-)}$")
+        ax.set_xlabel(r"$x$")
+        ax.set_ylabel(r"$q^{(r,-)}(x)$")
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=10)
+        ax.set_title(f"Volterra q-profile at t={t_last:g}, r={profile_r}, delta={delta_q}, gamma={gamma}")
         fig.tight_layout()
 
-        png_pair = outdir / f"volterra_2sites_pair_{x}_{y}__{yt}_{xt}_{tag}.png"
-        fig.savefig(png_pair, dpi=200)
+        png_q_profile = outdir / (
+            f"volterra_qm_profile_x{profile_x_center}_r{profile_r}_delta{delta_q}_{tag}.png"
+        )
+        fig.savefig(png_q_profile, dpi=200)
         plt.close(fig)
-        pair_pngs.append(png_pair)
+
+    if save_pair_plots:
+        # One figure per transpose pair: left panel Re, right panel Im.
+        n_pairs = len(pairs) // 2
+        for i in range(n_pairs):
+            x, y = pairs[i]
+            yt, xt = pairs[i + n_pairs]
+            fig, axes = plt.subplots(1, 2, figsize=(12, 4.8), sharex=True)
+
+            axes[0].plot(t, np.real(c[i]), lw=1.4, label=f"Re C({x},{y})")
+            axes[0].plot(t, np.real(c[i + n_pairs]), ls="--", lw=1.2, label=f"Re C({yt},{xt})")
+            axes[0].set_xlabel("t")
+            axes[0].set_ylabel("Re C")
+            axes[0].grid(True, alpha=0.3)
+            axes[0].legend(fontsize=12)
+
+            axes[1].plot(t, np.imag(c[i]), lw=1.4, label=f"Im C({x},{y})")
+            axes[1].plot(t, -np.imag(c[i + n_pairs]), ls="--", lw=1.2, label=f"-Im C({yt},{xt})")
+            axes[1].set_xlabel("t")
+            axes[1].set_ylabel("Im C")
+            axes[1].grid(True, alpha=0.3)
+            axes[1].legend(fontsize=12)
+
+            fig.suptitle(f"Pair comparison: ({x},{y}) vs ({yt},{xt}), gamma={gamma}, free={free_mode}")
+            fig.tight_layout()
+
+            png_pair = outdir / f"volterra_2sites_pair_{x}_{y}__{yt}_{xt}_{tag}.png"
+            fig.savefig(png_pair, dpi=200)
+            plt.close(fig)
+            pair_pngs.append(png_pair)
 
     print("Saved:", csv_c)
     print("Saved:", csv_sym)
-    print("Saved:", csv_trl)
-    print("Saved:", csv_final)
+    if csv_trl is not None:
+        print("Saved:", csv_trl)
+    if csv_final is not None:
+        print("Saved:", csv_final)
+    if csv_q_profile is not None:
+        print("Saved:", csv_q_profile)
+    if png_q_profile is not None:
+        print("Saved:", png_q_profile)
     for png_path in pair_pngs:
         print("Saved:", png_path)
     print("Pairs order:", pairs)
@@ -407,6 +654,12 @@ def main():
     ap.add_argument("--dt", type=float, default=0.1)
     ap.add_argument("--free-mode", type=str, default="half_neel", choices=["half_neel", "zero"])
     ap.add_argument("--nmax-extra", type=int, default=40)
+    ap.add_argument("--profile-r", type=int, default=None, help="If set, reconstruct q^(r,-) on a symmetric window around x_center.")
+    ap.add_argument("--profile-delta", type=int, default=None, help="Half-width of the q-profile window (default: n_sites).")
+    ap.add_argument("--profile-x-center", type=int, default=0, help="Center x coordinate for the reconstructed q-profile.")
+    ap.add_argument("--save-final-check", action="store_true", help="Also compute and save T_{r,l} and final-result check tables.")
+    ap.add_argument("--save-pair-plots", action="store_true", help="Also save the pair-by-pair diagnostic PNGs.")
+    ap.add_argument("--quad", type=str, default="simpson", choices=["simpson", "trap"], help="Time-integration scheme for the source solve and q reconstruction.")
     ap.add_argument("--outdir", type=str, default=None, help="Output directory (default: output_<n_sites>sites).")
     ap.add_argument("--n_sites", type=int, default=1)
     args = ap.parse_args()
@@ -419,6 +672,12 @@ def main():
         free_mode=args.free_mode,
         nmax_extra=args.nmax_extra,
         n_sites=args.n_sites,
+        profile_r=args.profile_r,
+        profile_delta=args.profile_delta,
+        profile_x_center=args.profile_x_center,
+        save_final_check=args.save_final_check,
+        save_pair_plots=args.save_pair_plots,
+        quad=args.quad,
         outdir=args.outdir,
     )
 

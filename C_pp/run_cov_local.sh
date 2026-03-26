@@ -24,16 +24,16 @@ N_JOBS=${N_JOBS:-2}
 # Defaults for the local corrected covariance run.
 # Note: SIZES is the half-chain size L, so SIZES=1000 means total N=2000.
 SIZES=${SIZES:-"1500"}
-TIMES=${TIMES:-"100 150 200 250 300 400"}
+TIMES=${TIMES:-"150 200 250 300 350 400"}
 GAMMAS=${GAMMAS:-"1.0"}
 
-# Leave S_OFFSET unset by default so main_dynamics_it_cov.py uses s_offset=size.
-S_OFFSET=${S_OFFSET:-""}
+# Use s_offset=size by default. main_dynamics_it_cov.py interprets --s-offset 0 that way.
+S_OFFSET=${S_OFFSET:-"0"}
 
-BETA=${BETA:-0.0}
+BETA=${BETA:-1.0}
 BETA_L=${BETA_L:-""}
 BETA_R=${BETA_R:-""}
-INIT_STATE=${INIT_STATE:-"neel"}
+INIT_STATE=${INIT_STATE:-"beta"}
 PHSYMM_M=${PHSYMM_M:-1}
 PHSYMM_A=${PHSYMM_A:-0.2}
 
@@ -56,7 +56,11 @@ OUTDIR=${OUTDIR:-"$PWD/runs/${INIT_STATE}_cov_local_L${SIZES_ARR[0]}"}
 echo "Using PYTHON_BIN=$PYTHON_BIN, N_JOBS=$N_JOBS, OUTDIR=$OUTDIR"
 echo "SIZES=$SIZES | TIMES=$TIMES | GAMMAS=$GAMMAS"
 if [ -n "${S_OFFSET}" ]; then
-  echo "S_OFFSET=$S_OFFSET"
+  if [ "${S_OFFSET}" = "0" ]; then
+    echo "S_OFFSET=size (via 0 sentinel)"
+  else
+    echo "S_OFFSET=$S_OFFSET"
+  fi
 else
   echo "S_OFFSET=<default=size>"
 fi

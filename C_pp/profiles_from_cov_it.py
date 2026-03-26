@@ -2,6 +2,21 @@
 """
 Rebuild q/J profiles from saved covariance matrices produced by
 main_dynamics_it_cov.py.
+
+running example:
+python3 profiles_from_cov_it.py \
+  --outdir ./runs/neel_cov_local_L1500 \
+  --cov-dir ./runs/neel_cov_local_L1500/GHD_IT_COV \
+  --init-state neel \
+  --sizes "1500" \
+  --s-offsets "1500" \
+  --gammas "1.0" \
+  --times "200" \
+  --r-list "1 3 5" \
+  --sign "-" \
+  --n-jobs 1
+
+
 """
 import os
 import sys
@@ -316,6 +331,8 @@ def main():
                         ax.set_xlim(args.z_min, args.z_max)
                     axes[0].set_ylabel("q")
                     axes[1].set_ylabel("J")
+                    for ax in axes:
+                        ax.set_xlim(-2.5,2.5)
                     fig.suptitle(title_for(meta, r, sign, a_sites, b_sites))
                     fig.tight_layout()
                     fig.savefig(outpng, dpi=200)
