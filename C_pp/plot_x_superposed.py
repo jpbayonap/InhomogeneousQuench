@@ -7,7 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
-INIT_STATES = ("neel", "neel_even", "beta", "beta_lr", "vac_fill", "mixed_neel", "vac_infty", "phsymm", "phsymm_odd")
+INIT_STATES = ("neel", "polarized", "neel_even", "beta", "beta_lr", "vac_fill", "mixed_neel", "vac_infty", "phsymm", "phsymm_odd")
 
 '''
 run example:
@@ -64,6 +64,7 @@ def format_region_tag(info):
 def init_state_tex_label(init_state):
     labels = {
         "neel": r"\mathrm{num}",
+        "polarized": r"\mathrm{num}",
         "vac_fill": r"\mathrm{num}",
         "neel_even": r"\mathrm{num}",
         "mixed_neel": r"\mathrm{num}",
@@ -79,6 +80,7 @@ def init_state_tex_label(init_state):
 def init_state_panel_label(init_state):
     labels = {
         "neel": r"\mathrm{Vacuum\ Neel}",
+        "polarized": r"\mathrm{Polarized}",
         "vac_fill": r"\mathrm{Vac/Fill}",
         "neel_even": r"\mathrm{Vacuum\ Neel\ even}",
         "mixed_neel": r"\mathrm{Mixed\ Neel}",
@@ -214,6 +216,9 @@ def parse_name(path):
     pattern_neel_mat = re.compile(
         r"GHD_r(?P<r>[-0-9]+)_sign(?P<sign>[+-])_M(?P<M>[-0-9]+)_gamma(?P<gamma>[-0-9.]+)(?P<tag>[A-Za-z0-9_]*)\.csv$"
     )
+    pattern_hybrid_mat = re.compile(
+        r"GHD_(?P<state>NEEL|POLARIZED)_HYBRID_(?P<delta_tag>delta[0-9]+)_r(?P<r>[-0-9]+)_sign(?P<sign>[+-])_M(?P<M>[-0-9]+)_gamma(?P<gamma>[-0-9.]+)(?P<tag>[A-Za-z0-9_.-]*)\.csv$"
+    )
     pattern_vac_fill_mat = re.compile(
         r"GHD_vac_fill_r(?P<r>[-0-9]+)_sign(?P<sign>[+-])_M(?P<M>[-0-9]+)_gamma(?P<gamma>[-0-9.]+)(?P<tag>[A-Za-z0-9_]*)\.csv$"
     )
@@ -275,7 +280,29 @@ def parse_name(path):
             "N": int(d["N"]),
             "M": None,
         }
-    
+
+    m = pattern_hybrid_mat.match(name)
+    if m:
+        d = m.groupdict()
+        return {
+            "source": "mat",
+            "init_state": d["state"].lower(),
+            "beta": None,
+            "betaL": None,
+            "betaR": None,
+            "a": None,
+            "b": None,
+            "s": None,
+            "T": None,
+            "N": None,
+            "r": int(d["r"]),
+            "sign": d["sign"],
+            "gamma": float(d["gamma"]),
+            "M": int(d["M"]),
+            "delta_tag": d["delta_tag"],
+            "tag": d.get("tag", "") or "",
+        }
+
     m = pattern_neel_mat.match(name)
     if m:
         d = m.groupdict()
@@ -286,6 +313,7 @@ def parse_name(path):
             "a": None, "b": None, "s": None, "T": None, "N": None,
             "r": int(d["r"]), "sign": d["sign"],
             "gamma": float(d["gamma"]), "M": int(d["M"]),
+            "delta_tag": None,
             "tag": d.get("tag", "") or "",
         }
 
@@ -657,13 +685,19 @@ def main():
         "--init-state",
         type=str,
         default=None,
-        choices=["neel", "neel_even", "vac_fill", "mixed_neel", "vac_infty", "phsymm", "phsymm_odd", "beta", "beta_lr"],
+        choices=["neel", "polarized", "neel_even", "vac_fill", "mixed_neel", "vac_infty", "phsymm", "phsymm_odd", "beta", "beta_lr"],
         help="Filter by initial-state family inferred from filename.",
     )
     ap.add_argument("--mat-csv-dir", type=str, default=None,
                 help="Directory with Mathematica CSVs (default: <outdir>/GHD_NELL_MAT_CSV)")
     ap.add_argument("--mat-M", type=int, default=None,
                 help="Filter Mathematica files by M (e.g. 800)")
+    ap.add_argument(
+        "--mat-delta-tag",
+        type=str,
+        default=None,
+        help="Filter hybrid Mathematica CSVs by delta tag (e.g. delta5).",
+    )
     ap.add_argument("--z-min", type=float, default=-2.5, help="Minimum zeta shown on x-axis.")
     ap.add_argument("--z-max", type=float, default=2.5, help="Maximum zeta shown on x-axis.")
     ap.add_argument("--show-title", dest="show_title", action="store_true", help="Show figure title (default: on).")
@@ -807,6 +841,9 @@ def main():
                 if args.mat_M is not None:
                     if info.get("M") is None or info["M"] != args.mat_M:
                         continue
+                if args.mat_delta_tag is not None:
+                    if info.get("delta_tag") != args.mat_delta_tag:
+                        continue
                 mat_entries.append((os.path.join(root, fname), info))
 
 
@@ -841,6 +878,26 @@ def main():
         else:
             key = (info.get("init_state"), info["r"], info["sign"], info["gamma"])
         mat_groups.setdefault(key, []).append((path, info))
+
+    if args.mat_delta_tag is None:
+        ambiguous_keys = []
+        for key, items in mat_groups.items():
+            delta_tags = sorted({info.get("delta_tag") for _, info in items if info.get("delta_tag")})
+            if len(delta_tags) > 1:
+                ambiguous_keys.append((key, delta_tags))
+        if ambiguous_keys:
+            preview = []
+            for key, delta_tags in ambiguous_keys[:5]:
+                preview.append(
+                    f"{key[0]}, r={key[1]}, sign={key[2]}, gamma={fmt2(key[3])}: {', '.join(delta_tags)}"
+                )
+            raise SystemExit(
+                "Multiple Mathematica delta tags matched the same state/r/sign/gamma key. "
+                "Pass --mat-delta-tag (for example delta5). "
+                f"Conflicts: {'; '.join(preview)}"
+            )
+
+    mat_tag_suffix = f"_{args.mat_delta_tag}" if args.mat_delta_tag else ""
 
     png_root_dir = os.path.join(args.outdir, "GHD_SUPERPOSED", "png")
     pdf_root_dir = os.path.join(args.outdir, "GHD_SUPERPOSED", "pdf")
@@ -957,6 +1014,8 @@ def main():
         init_state = info0.get("init_state")
         if init_state == "neel":
             title = rf"$r={info0['r']},\ \mathrm{{sign}}={info0['sign']},\ {gamma_txt},\ {t_txt},\ N={info0['N']}$"
+        elif init_state == "polarized":
+            title = rf"$\mathrm{{Polarized}},\ r={info0['r']},\ \mathrm{{sign}}={info0['sign']},\ {gamma_txt},\ {t_txt},\ N={info0['N']}$"
         elif init_state == "neel_even":
             title = rf"$\mathrm{{Vacuum\ Neel\ even}},\ r={info0['r']},\ \mathrm{{sign}}={info0['sign']},\ {gamma_txt},\ {t_txt},\ N={info0['N']}$"
         elif init_state == "vac_fill":
@@ -1076,23 +1135,25 @@ def main():
         init_state = meta["init_state"]
         info = meta["info0"]
         if init_state == "neel":
-            outpng = os.path.join(png_dir, f"GHD_NEEL_xsuperposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}.png")
+            outpng = os.path.join(png_dir, f"GHD_NEEL_xsuperposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}{mat_tag_suffix}.png")
+        elif init_state == "polarized":
+            outpng = os.path.join(png_dir, f"GHD_POLARIZED_xsuperposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}{mat_tag_suffix}.png")
         elif init_state == "neel_even":
-            outpng = os.path.join(png_dir, f"GHD_IT_NEEL_EVEN_xsuperposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}.png")
+            outpng = os.path.join(png_dir, f"GHD_IT_NEEL_EVEN_xsuperposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}{mat_tag_suffix}.png")
         elif init_state == "vac_fill":
-            outpng = os.path.join(png_dir, f"GHD_vac_fill_xsuperposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}.png")
+            outpng = os.path.join(png_dir, f"GHD_vac_fill_xsuperposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}{mat_tag_suffix}.png")
         elif init_state == "mixed_neel":
-            outpng = os.path.join(png_dir, f"GHD_IT_MixedNeel_xsuperposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}.png")
+            outpng = os.path.join(png_dir, f"GHD_IT_MixedNeel_xsuperposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}{mat_tag_suffix}.png")
         elif init_state == "vac_infty":
-            outpng = os.path.join(png_dir, f"GHD_IT_VacInfty_xsuperposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}.png")
+            outpng = os.path.join(png_dir, f"GHD_IT_VacInfty_xsuperposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}{mat_tag_suffix}.png")
         elif init_state == "phsymm":
-            outpng = os.path.join(png_dir, f"GHD_IT_PHSYMM_m{info['m']}_A{info['A']:.6g}_xsuperposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}.png")
+            outpng = os.path.join(png_dir, f"GHD_IT_PHSYMM_m{info['m']}_A{info['A']:.6g}_xsuperposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}{mat_tag_suffix}.png")
         elif init_state == "phsymm_odd":
-            outpng = os.path.join(png_dir, f"GHD_IT_PHSYMM_ODD_m{info['m']}_A{info['A']:.6g}_xsuperposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}.png")
+            outpng = os.path.join(png_dir, f"GHD_IT_PHSYMM_ODD_m{info['m']}_A{info['A']:.6g}_xsuperposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}{mat_tag_suffix}.png")
         elif init_state == "beta_lr":
-            outpng = os.path.join(png_dir, f"GHD_NEEL_xsuperposed_betaL{info['betaL']}_betaR{info['betaR']}{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}.png")
+            outpng = os.path.join(png_dir, f"GHD_NEEL_xsuperposed_betaL{info['betaL']}_betaR{info['betaR']}{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}{mat_tag_suffix}.png")
         else:
-            outpng = os.path.join(png_dir, f"GHD_NEEL_xsuperposed_Beta{meta['beta_val']}{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}.png")
+            outpng = os.path.join(png_dir, f"GHD_NEEL_xsuperposed_Beta{meta['beta_val']}{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}{mat_tag_suffix}.png")
         return outpng, os.path.join(pdf_dir, os.path.basename(outpng).replace(".png", ".pdf"))
 
     group_metas = [build_group_meta(items) for items in py_groups.values()]
@@ -1169,7 +1230,7 @@ def main():
         os.makedirs(pdf_dir, exist_ok=True)
         outpdf = os.path.join(
             pdf_dir,
-            f"{ref_meta['init_state']}_x_profile_grid_{profile_tag}_{gamma_tag}_{t_tag}_{n_tag}_{rows}x{cols}.pdf",
+            f"{ref_meta['init_state']}_x_profile_grid_{profile_tag}_{gamma_tag}_{t_tag}_{n_tag}_{rows}x{cols}{mat_tag_suffix}.pdf",
         )
         fig.savefig(outpdf, bbox_inches="tight", pad_inches=0.08)
         plt.close(fig)

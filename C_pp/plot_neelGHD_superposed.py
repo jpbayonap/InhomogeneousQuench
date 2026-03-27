@@ -7,7 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
-INIT_STATES = ("neel", "neel_even", "beta", "beta_lr", "vac_fill", "mixed_neel", "vac_infty", "phsymm", "phsymm_odd")
+INIT_STATES = ("neel", "polarized", "neel_even", "beta", "beta_lr", "vac_fill", "mixed_neel", "vac_infty", "phsymm", "phsymm_odd")
 
 '''
 run example:
@@ -47,6 +47,25 @@ def fmt_int_or_float(x):
     return fmt2(xf)
 
 
+def parse_delta_tag_value(tag):
+    if tag is None:
+        return -1
+    m = re.fullmatch(r"delta(\d+)", str(tag))
+    if m:
+        return int(m.group(1))
+    return math.inf
+
+
+def format_delta_tag_tex(tag):
+    if tag is None:
+        return r"\mathrm{legacy}"
+    m = re.fullmatch(r"delta(\d+)", str(tag))
+    if m:
+        return rf"\delta_{{{m.group(1)}}}"
+    safe = re.sub(r"[^A-Za-z0-9]", "", str(tag))
+    return rf"\mathrm{{{safe or 'tag'}}}"
+
+
 def format_region_tag(info):
     """
     Build a filename tag for spatial offsets.
@@ -64,6 +83,7 @@ def format_region_tag(info):
 def init_state_tex_label(init_state):
     labels = {
         "neel": r"\mathrm{num}",
+        "polarized": r"\mathrm{num}",
         "vac_fill": r"\mathrm{num}",
         "neel_even": r"\mathrm{num}",
         "mixed_neel": r"\mathrm{num}",
@@ -79,6 +99,7 @@ def init_state_tex_label(init_state):
 def init_state_panel_label(init_state):
     labels = {
         "neel": r"\mathrm{Vacuum\ Neel}",
+        "polarized": r"\mathrm{Polarized}",
         "vac_fill": r"\mathrm{Vac/Fill}",
         "neel_even": r"\mathrm{Vacuum\ Neel\ even}",
         "mixed_neel": r"\mathrm{Mixed\ Neel}",
@@ -214,6 +235,9 @@ def parse_name(path):
     pattern_neel_mat = re.compile(
         r"GHD_r(?P<r>[-0-9]+)_sign(?P<sign>[+-])_M(?P<M>[-0-9]+)_gamma(?P<gamma>[-0-9.]+)(?P<tag>[A-Za-z0-9_]*)\.csv$"
     )
+    pattern_hybrid_mat = re.compile(
+        r"GHD_(?P<state>NEEL|POLARIZED)_HYBRID_(?P<delta_tag>delta[0-9]+)_r(?P<r>[-0-9]+)_sign(?P<sign>[+-])_M(?P<M>[-0-9]+)_gamma(?P<gamma>[-0-9.]+)(?P<tag>[A-Za-z0-9_.-]*)\.csv$"
+    )
     pattern_vac_fill_mat = re.compile(
         r"GHD_vac_fill_r(?P<r>[-0-9]+)_sign(?P<sign>[+-])_M(?P<M>[-0-9]+)_gamma(?P<gamma>[-0-9.]+)(?P<tag>[A-Za-z0-9_]*)\.csv$"
     )
@@ -275,7 +299,29 @@ def parse_name(path):
             "N": int(d["N"]),
             "M": None,
         }
-    
+
+    m = pattern_hybrid_mat.match(name)
+    if m:
+        d = m.groupdict()
+        return {
+            "source": "mat",
+            "init_state": d["state"].lower(),
+            "beta": None,
+            "betaL": None,
+            "betaR": None,
+            "a": None,
+            "b": None,
+            "s": None,
+            "T": None,
+            "N": None,
+            "r": int(d["r"]),
+            "sign": d["sign"],
+            "gamma": float(d["gamma"]),
+            "M": int(d["M"]),
+            "delta_tag": d["delta_tag"],
+            "tag": d.get("tag", "") or "",
+        }
+
     m = pattern_neel_mat.match(name)
     if m:
         d = m.groupdict()
@@ -286,6 +332,7 @@ def parse_name(path):
             "a": None, "b": None, "s": None, "T": None, "N": None,
             "r": int(d["r"]), "sign": d["sign"],
             "gamma": float(d["gamma"]), "M": int(d["M"]),
+            "delta_tag": None,
             "tag": d.get("tag", "") or "",
         }
 
@@ -657,13 +704,25 @@ def main():
         "--init-state",
         type=str,
         default=None,
-        choices=["neel", "neel_even", "vac_fill", "mixed_neel", "vac_infty", "phsymm", "phsymm_odd", "beta", "beta_lr"],
+        choices=["neel", "polarized", "neel_even", "vac_fill", "mixed_neel", "vac_infty", "phsymm", "phsymm_odd", "beta", "beta_lr"],
         help="Filter by initial-state family inferred from filename.",
     )
     ap.add_argument("--mat-csv-dir", type=str, default=None,
                 help="Directory with Mathematica CSVs (default: <outdir>/GHD_NELL_MAT_CSV)")
     ap.add_argument("--mat-M", type=int, default=None,
                 help="Filter Mathematica files by M (e.g. 800)")
+    ap.add_argument(
+        "--mat-delta-tag",
+        type=str,
+        default=None,
+        help="Filter hybrid Mathematica CSVs by delta tag (e.g. delta5).",
+    )
+    ap.add_argument(
+        "--mat-delta-tags",
+        type=str,
+        default=None,
+        help="Comma/space-separated hybrid Mathematica delta tags to overlay (e.g. 'delta1 delta3 delta5').",
+    )
     ap.add_argument("--z-min", type=float, default=-2.5, help="Minimum zeta shown on x-axis.")
     ap.add_argument("--z-max", type=float, default=2.5, help="Maximum zeta shown on x-axis.")
     ap.add_argument("--show-title", dest="show_title", action="store_true", help="Show figure title (default: on).")
@@ -717,6 +776,19 @@ def main():
     Beta = args.beta
     betaL = args.betaL
     betaR = args.betaR
+    mat_delta_tags = parse_list(args.mat_delta_tags, str)
+    if args.mat_delta_tag is not None and mat_delta_tags is not None:
+        raise SystemExit("Use only one of --mat-delta-tag or --mat-delta-tags.")
+    if mat_delta_tags is not None:
+        mat_delta_tags = [str(tag).strip() for tag in mat_delta_tags if str(tag).strip()]
+        if not mat_delta_tags:
+            mat_delta_tags = None
+    selected_mat_delta_tags = None
+    if args.mat_delta_tag is not None:
+        selected_mat_delta_tags = [args.mat_delta_tag]
+    elif mat_delta_tags is not None:
+        selected_mat_delta_tags = sorted(set(mat_delta_tags), key=parse_delta_tag_value)
+    multi_mat_delta = selected_mat_delta_tags is not None and len(selected_mat_delta_tags) > 1
 
     py_entries = []
     mat_entries= []
@@ -808,6 +880,9 @@ def main():
                 if args.mat_M is not None:
                     if info.get("M") is None or info["M"] != args.mat_M:
                         continue
+                if selected_mat_delta_tags is not None:
+                    if info.get("delta_tag") not in selected_mat_delta_tags:
+                        continue
                 mat_entries.append((os.path.join(root, fname), info))
 
 
@@ -842,6 +917,29 @@ def main():
         else:
             key = (info.get("init_state"), info["r"], info["sign"], info["gamma"])
         mat_groups.setdefault(key, []).append((path, info))
+
+    if selected_mat_delta_tags is None:
+        ambiguous_keys = []
+        for key, items in mat_groups.items():
+            delta_tags = sorted({info.get("delta_tag") for _, info in items if info.get("delta_tag")})
+            if len(delta_tags) > 1:
+                ambiguous_keys.append((key, delta_tags))
+        if ambiguous_keys:
+            preview = []
+            for key, delta_tags in ambiguous_keys[:5]:
+                preview.append(
+                    f"{key[0]}, r={key[1]}, sign={key[2]}, gamma={fmt2(key[3])}: {', '.join(delta_tags)}"
+                )
+            raise SystemExit(
+                "Multiple Mathematica delta tags matched the same state/r/sign/gamma key. "
+                "Pass --mat-delta-tag (for example delta5). "
+                f"Conflicts: {'; '.join(preview)}"
+            )
+
+    if selected_mat_delta_tags:
+        mat_tag_suffix = "_" + "_".join(selected_mat_delta_tags)
+    else:
+        mat_tag_suffix = ""
 
     png_root_dir = os.path.join(args.outdir, "GHD_SUPERPOSED", "png")
     pdf_root_dir = os.path.join(args.outdir, "GHD_SUPERPOSED", "pdf")
@@ -886,16 +984,99 @@ def main():
 
 
     markers = ["o", "s", "^"]
-    color_cycle = [
+    q_color_cycle = [
         "tab:blue",
-        "tab:orange",
+        "tab:cyan",
         "tab:green",
+        "navy",
+        "teal",
+        "tab:olive",
+        "steelblue",
+        "mediumseagreen",
+    ]
+    j_color_cycle = [
+        "tab:orange",
         "tab:red",
         "tab:brown",
-        "tab:cyan",
         "tab:pink",
-        "tab:gray",
+        "darkgoldenrod",
+        "firebrick",
+        "sienna",
+        "peru",
     ]
+    delta_q_color_cycle = [
+        "navy",
+        "tab:blue",
+        "tab:cyan",
+        "tab:green",
+        "mediumseagreen",
+        "steelblue",
+    ]
+    delta_j_color_cycle = [
+        "firebrick",
+        "tab:red",
+        "tab:orange",
+        "sienna",
+        "darkgoldenrod",
+        "tab:cyan",
+    ]
+
+    def get_delta_mat_color(delta_tag, quantity):
+        palette = delta_q_color_cycle if quantity == "q" else delta_j_color_cycle
+        if selected_mat_delta_tags is not None and delta_tag in selected_mat_delta_tags:
+            idx = selected_mat_delta_tags.index(delta_tag)
+        else:
+            idx = parse_delta_tag_value(delta_tag)
+            if idx is math.inf:
+                idx = 0
+        return palette[idx % len(palette)]
+
+    def find_mat_profiles(meta, info, zeta):
+        init_state = meta["init_state"]
+        g_key = float(info["gamma"])
+        if init_state in ("phsymm", "phsymm_odd"):
+            mat_key = (init_state, meta["r_val"], meta["sign_val"], g_key, info.get("m"), info.get("A"))
+        else:
+            mat_key = (init_state, meta["r_val"], meta["sign_val"], g_key)
+        mat_items = mat_groups.get(mat_key, [])
+        if not mat_items and init_state == "neel":
+            mat_items = mat_groups.get((None, meta["r_val"], meta["sign_val"], g_key), [])
+        if not mat_items and init_state == "vac_fill" and np.isclose(g_key, 0.0):
+            mat_dir_for_save = args.mat_csv_dir or os.path.join(args.outdir, "GHD_vac_fill_mat", "csv")
+            mat_path = ensure_vac_fill_unitary_csv(mat_dir_for_save, meta["r_val"], meta["sign_val"], zeta)
+            mat_info = {
+                "source": "mat",
+                "init_state": "vac_fill",
+                "r": meta["r_val"],
+                "sign": meta["sign_val"],
+                "gamma": 0.0,
+                "M": 0,
+                "delta_tag": None,
+            }
+            mat_items = [(mat_path, mat_info)]
+        if not mat_items:
+            return []
+        mat_items = sorted(
+            mat_items,
+            key=lambda x: (
+                parse_delta_tag_value(x[1].get("delta_tag")),
+                x[1].get("M", -1),
+                1 if "seggrid" in str(x[1].get("tag", "")).lower() else 0,
+            ),
+        )
+        # Keep only the best candidate for each delta tag.
+        chosen = {}
+        for cand_path, cand_info in mat_items:
+            chosen[cand_info.get("delta_tag")] = (cand_path, cand_info)
+        profiles = []
+        for delta_tag in sorted(chosen.keys(), key=parse_delta_tag_value):
+            cand_path, cand_info = chosen[delta_tag]
+            try:
+                zeta_m, q_m, j_m = load_profile(cand_path, "mat")
+            except ValueError:
+                continue
+            profiles.append((zeta_m, q_m, j_m, cand_info))
+        return profiles
 
     def sort_group_items(items):
         items = list(items)
@@ -937,6 +1118,8 @@ def main():
         init_state = info0.get("init_state")
         if init_state == "neel":
             title = rf"$r={info0['r']},\ \mathrm{{sign}}={info0['sign']},\ {gamma_txt},\ {t_txt},\ N={info0['N']}$"
+        elif init_state == "polarized":
+            title = rf"$\mathrm{{Polarized}},\ r={info0['r']},\ \mathrm{{sign}}={info0['sign']},\ {gamma_txt},\ {t_txt},\ N={info0['N']}$"
         elif init_state == "neel_even":
             title = rf"$\mathrm{{Vacuum\ Neel\ even}},\ r={info0['r']},\ \mathrm{{sign}}={info0['sign']},\ {gamma_txt},\ {t_txt},\ N={info0['N']}$"
         elif init_state == "vac_fill":
@@ -975,51 +1158,13 @@ def main():
             "state_tag": init_state if init_state in INIT_STATES else "unknown",
         }
 
-    def find_mat_profile(meta, info, zeta):
-        init_state = meta["init_state"]
-        g_key = float(info["gamma"])
-        if init_state in ("phsymm", "phsymm_odd"):
-            mat_key = (init_state, meta["r_val"], meta["sign_val"], g_key, info.get("m"), info.get("A"))
-        else:
-            mat_key = (init_state, meta["r_val"], meta["sign_val"], g_key)
-        mat_items = mat_groups.get(mat_key, [])
-        if not mat_items and init_state == "neel":
-            mat_items = mat_groups.get((None, meta["r_val"], meta["sign_val"], g_key), [])
-        if not mat_items and init_state == "vac_fill" and np.isclose(g_key, 0.0):
-            mat_dir_for_save = args.mat_csv_dir or os.path.join(args.outdir, "GHD_vac_fill_mat", "csv")
-            mat_path = ensure_vac_fill_unitary_csv(mat_dir_for_save, meta["r_val"], meta["sign_val"], zeta)
-            mat_info = {
-                "source": "mat",
-                "init_state": "vac_fill",
-                "r": meta["r_val"],
-                "sign": meta["sign_val"],
-                "gamma": 0.0,
-                "M": 0,
-            }
-            mat_items = [(mat_path, mat_info)]
-        if not mat_items:
-            return None
-        mat_items = sorted(
-            mat_items,
-            key=lambda x: (
-                x[1].get("M", -1),
-                1 if "seggrid" in str(x[1].get("tag", "")).lower() else 0,
-            ),
-        )
-        for cand_path, cand_info in reversed(mat_items):
-            try:
-                zeta_m, q_m, j_m = load_profile(cand_path, "mat")
-                return zeta_m, q_m, j_m, cand_info
-            except ValueError:
-                continue
-        return None
-
     def draw_group(meta, axes, label_prefix=None, color_offset=0, legend_mode="both"):
         init_state = meta["init_state"]
         mat_drawn = set()
         for idx, (path, info) in enumerate(meta["items"]):
             zeta, q_vals, j_vals = load_profile(path, "py")
-            color = color_cycle[(color_offset + idx) % len(color_cycle)]
+            q_color = q_color_cycle[(color_offset + idx) % len(q_color_cycle)]
+            j_color = j_color_cycle[(color_offset + idx) % len(j_color_cycle)]
             label_parts = []
             if label_prefix is not None:
                 label_parts.append(label_prefix)
@@ -1033,28 +1178,36 @@ def main():
                 label_parts.append(rf"T={fmt2(info['T'])}")
             if meta.get("include_n_in_label", False):
                 label_parts.append(rf"N={info['N']}")
-            label = "$" + r",\ ".join(label_parts) + "$"
+            num_label = "$" + r",\ ".join(label_parts) + "$"
             marker = markers[idx % len(markers)]
-            axes[0].scatter(zeta, q_vals, s=8, marker=marker, color=color, alpha=0.35, linewidths=0, label=label)
-            axes[1].scatter(zeta, j_vals, s=8, marker=marker, color=color, alpha=0.35, linewidths=0, label=label)
+            axes[0].scatter(zeta, q_vals, s=5, marker=marker, color=q_color, alpha=0.22, linewidths=0, label=num_label)
+            axes[1].scatter(zeta, j_vals, s=5, marker=marker, color=j_color, alpha=0.22, linewidths=0, label=num_label)
 
             g_key = float(info["gamma"])
-            if g_key in mat_drawn:
+            mat_profiles = find_mat_profiles(meta, info, zeta)
+            if not mat_profiles:
                 continue
-            mat_profile = find_mat_profile(meta, info, zeta)
-            if mat_profile is None:
-                continue
-            zeta_m, q_m, j_m, mat_info = mat_profile
-            mat_label_parts = [label_prefix] if label_prefix is not None else []
-            mat_label_parts.append(r"\mathrm{GHD}")
-            if meta["include_gamma_in_label"] and not (init_state == "vac_fill" and np.isclose(g_key, 0.0) and mat_info.get("M") == 0):
-                mat_label_parts.append(rf"\gamma={g_key:g}")
-            if meta.get("include_n_in_label", False):
-                mat_label_parts.append(rf"N={info['N']}")
-            mat_label = "$" + r",\ ".join([p for p in mat_label_parts if p]) + "$"
-            axes[0].plot(zeta_m, q_m, color=color, lw=1.2, alpha=0.95, label=mat_label)
-            axes[1].plot(zeta_m, j_m, color=color, lw=1.2, alpha=0.95, label=mat_label)
-            mat_drawn.add(g_key)
+            for zeta_m, q_m, j_m, mat_info in mat_profiles:
+                draw_key = (g_key, mat_info.get("delta_tag"))
+                if draw_key in mat_drawn:
+                    continue
+                q_mat_color = q_color
+                j_mat_color = j_color
+                if multi_mat_delta:
+                    q_mat_color = get_delta_mat_color(mat_info.get("delta_tag"), "q")
+                    j_mat_color = get_delta_mat_color(mat_info.get("delta_tag"), "j")
+                mat_label_parts = [label_prefix] if label_prefix is not None else []
+                mat_label_parts.append(r"\mathrm{GHD}")
+                if multi_mat_delta:
+                    mat_label_parts.append(format_delta_tag_tex(mat_info.get("delta_tag")))
+                if meta["include_gamma_in_label"] and not (init_state == "vac_fill" and np.isclose(g_key, 0.0) and mat_info.get("M") == 0):
+                    mat_label_parts.append(rf"\gamma={g_key:g}")
+                if meta.get("include_n_in_label", False):
+                    mat_label_parts.append(rf"N={info['N']}")
+                mat_label = "$" + r",\ ".join([p for p in mat_label_parts if p]) + "$"
+                axes[0].plot(zeta_m, q_m, color=q_mat_color, lw=0.8, alpha=0.95, label=mat_label)
+                axes[1].plot(zeta_m, j_m, color=j_mat_color, lw=0.8, alpha=0.95, label=mat_label)
+                mat_drawn.add(draw_key)
 
         for ax in axes:
             ax.set_xlim(args.z_min, args.z_max)
@@ -1079,23 +1232,25 @@ def main():
         init_state = meta["init_state"]
         info = meta["info0"]
         if init_state == "neel":
-            outpng = os.path.join(png_dir, f"GHD_NEEL_sp{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}.png")
+            outpng = os.path.join(png_dir, f"GHD_NEEL_sp{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}{mat_tag_suffix}.png")
+        elif init_state == "polarized":
+            outpng = os.path.join(png_dir, f"GHD_POLARIZED_sp{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}{mat_tag_suffix}.png")
         elif init_state == "neel_even":
-            outpng = os.path.join(png_dir, f"GHD_IT_NEEL_EVEN_superposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}.png")
+            outpng = os.path.join(png_dir, f"GHD_IT_NEEL_EVEN_superposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}{mat_tag_suffix}.png")
         elif init_state == "vac_fill":
-            outpng = os.path.join(png_dir, f"GHD_vac_fill_superposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}.png")
+            outpng = os.path.join(png_dir, f"GHD_vac_fill_superposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}{mat_tag_suffix}.png")
         elif init_state == "mixed_neel":
-            outpng = os.path.join(png_dir, f"GHD_IT_MixedNeel_superposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}.png")
+            outpng = os.path.join(png_dir, f"GHD_IT_MixedNeel_superposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}{mat_tag_suffix}.png")
         elif init_state == "vac_infty":
-            outpng = os.path.join(png_dir, f"GHD_IT_VacInfty_superposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}.png")
+            outpng = os.path.join(png_dir, f"GHD_IT_VacInfty_superposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}{mat_tag_suffix}.png")
         elif init_state == "phsymm":
-            outpng = os.path.join(png_dir, f"GHD_IT_PHSYMM_m{info['m']}_A{info['A']:.6g}_superposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}.png")
+            outpng = os.path.join(png_dir, f"GHD_IT_PHSYMM_m{info['m']}_A{info['A']:.6g}_superposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}{mat_tag_suffix}.png")
         elif init_state == "phsymm_odd":
-            outpng = os.path.join(png_dir, f"GHD_IT_PHSYMM_ODD_m{info['m']}_A{info['A']:.6g}_superposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}.png")
+            outpng = os.path.join(png_dir, f"GHD_IT_PHSYMM_ODD_m{info['m']}_A{info['A']:.6g}_superposed{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}{mat_tag_suffix}.png")
         elif init_state == "beta_lr":
-            outpng = os.path.join(png_dir, f"GHD_NEEL_superposed_betaL{info['betaL']}_betaR{info['betaR']}{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}.png")
+            outpng = os.path.join(png_dir, f"GHD_NEEL_superposed_betaL{info['betaL']}_betaR{info['betaR']}{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}{mat_tag_suffix}.png")
         else:
-            outpng = os.path.join(png_dir, f"GHD_NEEL_superposed_Beta{meta['beta_val']}{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}.png")
+            outpng = os.path.join(png_dir, f"GHD_NEEL_superposed_Beta{meta['beta_val']}{meta['region_tag']}_r{meta['r_val']}_sign{meta['sign_val']}_{meta['gamma_tag']}_{meta['t_tag']}_N{info['N']}{mat_tag_suffix}.png")
         return outpng, os.path.join(pdf_dir, os.path.basename(outpng).replace(".png", ".pdf"))
 
     group_metas = [build_group_meta(items) for items in py_groups.values()]
@@ -1142,7 +1297,10 @@ def main():
             q_ax.set_title(rf"$r={r_val}$", fontsize=13, pad=8)
             handles, labels = q_ax.get_legend_handles_labels()
             if handles:
-                q_ax.legend(fontsize=8.5, loc="lower right")
+                q_ax.legend(fontsize=7.5, loc="lower right")
+            handles, labels = j_ax.get_legend_handles_labels()
+            if handles:
+                j_ax.legend(fontsize=7.5, loc="lower right")
 
         for col in range(cols):
             axes[0, col].set_xlabel("")
@@ -1186,7 +1344,7 @@ def main():
         os.makedirs(pdf_dir, exist_ok=True)
         outpdf = os.path.join(
             pdf_dir,
-            f"{ref_meta['init_state']}_profile_grid_{profile_tag}_{gamma_tag}_{t_tag}_{n_tag}_{rows}x{cols}.pdf",
+            f"{ref_meta['init_state']}_profile_grid_{profile_tag}_{gamma_tag}_{t_tag}_{n_tag}_{rows}x{cols}{mat_tag_suffix}.pdf",
         )
         fig.savefig(outpdf, bbox_inches="tight", pad_inches=0.08)
         plt.close(fig)
