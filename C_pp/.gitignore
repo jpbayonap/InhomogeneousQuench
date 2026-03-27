@@ -10,7 +10,6 @@ logs/
 *.csv
 *.png
 *.pdf
-*.nb
 *.npz
 *.npy
 *.log
