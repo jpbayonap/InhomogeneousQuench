@@ -79,7 +79,7 @@ def compute_point(C_t, delta, x_center, r, gamma, sign, state):
     q_r = float(np.real(q_fun(r, x_center + delta, C_t, "open")))
     Delta_j = j_r - j_l
     rhs_term = gamma * q_center
-    prefactor = -1.0 if state == "beta" else -r
+    prefactor = 1.0 if state == "beta" else -r
     q_l = prefactor * gamma * q_l
     q_r = prefactor * gamma * q_r
     error_bdy = np.abs(Delta_j + rhs_term)
