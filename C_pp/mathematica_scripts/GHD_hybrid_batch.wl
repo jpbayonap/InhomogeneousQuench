@@ -41,28 +41,34 @@ deltaRTable = {
    {1.1920928955078125*^-7, 0.0, 8.457433432340621948*^-3, 0.0, 1.617655251175165176*^-2, 0.0, 1.487755449488759041*^-2, 0.0, 1.141047198325395584*^-2, 0.0, 8.386073750443756580*^-3}
 };
 
-(*profileDeltaTable = deltaRTable;*)
-(* smoke test*)
-profileDeltaTable = {deltaR};
+deltaRTableBatch = deltaRTable[[1 ;; 3]];
+profileDeltaTable = deltaRTableBatch;
 
-(*profileList = Join[
-   Table[{r, "-"}, {r, {1, 3, 5}}],
-   Table[{r, "+"}, {r, {0, 2, 4}}]
-];*)
+profileListOdd = Table[{r, "-"}, {r, {1, 3, 5}}];
+profileListEven = Table[{r, "+"}, {r, {0, 2, 4}}];
 
-(* smoke test*)
-profileList = Table[{r, "-"}, {r, {3}}];
+profileMode = Module[{s = ToLowerCase @ StringTrim @ Environment["MMA_PROFILE_MODE"]},
+  Switch[s,
+    "", "odd",
+    "odd" | "even" | "all", s,
+    _, Print["ERROR: invalid MMA_PROFILE_MODE = ", s]; Quit[1]
+  ]
+];
 
-(*zetasVal = Join[
+profileList = Switch[
+  profileMode,
+  "odd", profileListOdd,
+  "even", profileListEven,
+  "all", Join[profileListOdd, profileListEven]
+];
+
+Print["profileMode = ", profileMode];
+Print["profileList = ", profileList];
+
+zetasVal = Join[
    Subdivide[-2.5, -1., 40],
    Rest @ Subdivide[-1., 1., 160],
    Rest @ Subdivide[1., 2.5, 40]
-];*)
-(* smoke test *)
-zetasVal = Join[
-   Subdivide[-2.5, -1., 10],
-   Rest @ Subdivide[-1., 1., 10],
-   Rest @ Subdivide[1., 2.5, 10]
 ];
 
 

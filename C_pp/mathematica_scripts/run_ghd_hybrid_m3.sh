@@ -37,6 +37,7 @@ TARGET_DIR="$CONTAINER_DIR/C_pp/mathematica_scripts"
 # Measuring rate 
 MMA_GAMMA="${MMA_GAMMA:-1.0}"
 MMA_RUN_DIAGNOSTICS="${MMA_RUN_DIAGNOSTICS:-false}"
+MMA_PROFILE_MODE="${MMA_PROFILE_MODE:-odd}"
 
 
 
@@ -66,6 +67,7 @@ echo "SCRIPT_DIR=$SCRIPT_DIR"
 echo "MMA_SCRIPT=$MMA_SCRIPT"
 echo "MMA_GAMMA=$MMA_GAMMA"
 echo "MMA_RUN_DIAGNOSTICS=$MMA_RUN_DIAGNOSTICS"
+echo "MMA_PROFILE_MODE=$MMA_PROFILE_MODE"
 
 
 apptainer exec \
@@ -82,6 +84,7 @@ apptainer exec \
   export NUMEXPR_NUM_THREADS=1
   export MMA_GAMMA=$MMA_GAMMA
   export MMA_RUN_DIAGNOSTICS=$MMA_RUN_DIAGNOSTICS
+  export MMA_PROFILE_MODE=$MMA_PROFILE_MODE
   ls /mnt/ffhiggstop/Wolfram/Mathematica/13.3/Executables
 
 
