@@ -4,8 +4,13 @@ ClearAll["Global`*"];
 $HistoryLength = 0;
 
 (* =====================USER SETTINGS===================== *)
-state = "neel";
-(* state = "polarized"; *)
+state = Module[{s = ToLowerCase @ StringTrim @ Environment["MMA_STATE"]},
+  Switch[s,
+    "", "neel",
+    "neel" | "polarized", s,
+    _, Print["ERROR: invalid MMA_STATE = ", s]; Quit[1]
+  ]
+];
 
 M = 350;
 Jhop = 1.0;
@@ -26,22 +31,27 @@ Print["gamma = ", gamma];
 wp = 80;
 kVals = Subdivide[-Pi, Pi, 800];
 
-deltaR = {
+deltaRNeel = {
    1.1920928955078125*^-7, 0.0, 8.457433432340621948*^-3, 0.0,
    1.617655251175165176*^-2, 0.0, 1.487755449488759041*^-2, 0.0,
    1.141047198325395584*^-2, 0.0, 8.386073750443756580*^-3
 };
 
-deltaRTable = {
-   {1.1920928955078125*^-7},
-   {1.1920928955078125*^-7, 0.0, 8.457433432340621948*^-3},
-   {1.1920928955078125*^-7, 0.0, 8.457433432340621948*^-3, 0.0, 1.617655251175165176*^-2},
-   {1.1920928955078125*^-7, 0.0, 8.457433432340621948*^-3, 0.0, 1.617655251175165176*^-2, 0.0, 1.487755449488759041*^-2},
-   {1.1920928955078125*^-7, 0.0, 8.457433432340621948*^-3, 0.0, 1.617655251175165176*^-2, 0.0, 1.487755449488759041*^-2, 0.0, 1.141047198325395584*^-2},
-   {1.1920928955078125*^-7, 0.0, 8.457433432340621948*^-3, 0.0, 1.617655251175165176*^-2, 0.0, 1.487755449488759041*^-2, 0.0, 1.141047198325395584*^-2, 0.0, 8.386073750443756580*^-3}
+deltaRPol = {
+   2.339482307434082031*^-6, 0.0, 1.692080125212669373*^-2, 0.0,
+   3.238510992377996445*^-2, 0.0, 2.984901797026395798*^-2, 0.0,
+   2.262004208751022816*^-2
 };
 
-deltaRTableBatch = deltaRTable[[1 ;; 3]];
+deltaR = Switch[
+  state,
+  "neel", deltaRNeel,
+  "polarized", deltaRPol,
+  _, Print["ERROR: unknown state = ", state]; Quit[1]
+];
+
+deltaRTable = Table[Take[deltaR, n], {n, 1, Length[deltaR], 2}];
+deltaRTableBatch = Take[deltaRTable, UpTo[3]];
 profileDeltaTable = deltaRTableBatch;
 
 profileListOdd = Table[{r, "-"}, {r, {1, 3, 5}}];
@@ -64,6 +74,7 @@ profileList = Switch[
 
 Print["profileMode = ", profileMode];
 Print["profileList = ", profileList];
+Print["delta tags = ", ("delta" <> ToString[Length[#]]) & /@ profileDeltaTable];
 
 zetasVal = Join[
    Subdivide[-2.5, -1., 40],
@@ -85,11 +96,18 @@ Print["runDiagnostics = ", runDiagnostics];
 
 rDiag = 3;
 signDiag = "-";
-zDiag = -0.0033333;
+zDiag = -0.1;
 (* ======================================================= *)
 
 scriptDir = DirectoryName[$InputFileName];
-outBase = FileNameJoin[{scriptDir, "results", "GHD_NEEL_HYBRID"}];
+repoBase = DirectoryName[scriptDir];
+stateDir = Switch[
+  state,
+  "neel", "GHD_NEEL_HYBRID",
+  "polarized", "GHD_POLARIZED_HYBRID",
+  _, "GHD_UNKNOWN_HYBRID"
+];
+outBase = FileNameJoin[{repoBase, stateDir}];
 
 chiCsvDir = FileNameJoin[{outBase, "chi_plus", "csv"}];
 chiPngDir = FileNameJoin[{outBase, "chi_plus", "png"}];
@@ -102,6 +120,7 @@ Scan[
 ];
 
 Print["scriptDir = ", scriptDir];
+Print["repoBase = ", repoBase];
 Print["outBase = ", outBase];
 
 (* Set number of Kernels *)

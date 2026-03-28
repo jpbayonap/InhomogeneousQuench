@@ -83,8 +83,10 @@ def compute_point(C_t, delta, x_center, r, gamma, sign, state):
     q_l = prefactor * gamma * q_l
     q_r = prefactor * gamma * q_r
     error_bdy = np.abs(Delta_j + rhs_term)
-    error_l = np.abs(Delta_j + q_l)
-    error_r = np.abs(Delta_j + q_r)
+    # The polarized/vac_fill sector satisfies the edge relation with the opposite sign.
+    edge_sign = -1.0 if state == "vac_fill" else 1.0
+    error_l = np.abs(Delta_j + edge_sign * q_l)
+    error_r = np.abs(Delta_j + edge_sign * q_r)
     return Delta_j, rhs_term, q_l, q_r, error_bdy, error_l, error_r
 
 
@@ -217,6 +219,7 @@ def main():
     fig, axes = plt.subplots(2, 1, figsize=(10, 6.2), sharex=True)
     sign_tex = args.sign
     edge_factor_tex = r"\gamma" if meta0["init_state"] == "beta" else r"r\gamma"
+    edge_op_tex = "-" if meta0["init_state"] == "vac_fill" else "+"
     axes[0].scatter(
         t_axis,
         error_bdy,
@@ -228,14 +231,14 @@ def main():
         t_axis,
         error_l,
         color="tab:green",
-        label=rf"$|\Delta J^{{(r,{sign_tex})}} + {edge_factor_tex} q^{{(r,{sign_tex})}}_{{-\delta}}|$",
+        label=rf"$|\Delta J^{{(r,{sign_tex})}} {edge_op_tex} {edge_factor_tex} q^{{(r,{sign_tex})}}_{{-\delta}}|$",
         s=8.8,
     )
     axes[0].scatter(
         t_axis,
         error_r,
         color="tab:orange",
-        label=rf"$|\Delta J^{{(r,{sign_tex})}} + {edge_factor_tex} q^{{(r,{sign_tex})}}_{{+\delta}}|$",
+        label=rf"$|\Delta J^{{(r,{sign_tex})}} {edge_op_tex} {edge_factor_tex} q^{{(r,{sign_tex})}}_{{+\delta}}|$",
         s=8.8,
     )
     axes[1].scatter(t_axis, abs(delta_j), color="tab:green", s=8.8, marker="s", label=rf"$|\Delta J^{{(r,{sign_tex})}}|$")
