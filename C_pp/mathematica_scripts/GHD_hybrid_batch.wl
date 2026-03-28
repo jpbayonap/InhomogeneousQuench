@@ -9,7 +9,20 @@ state = "neel";
 
 M = 350;
 Jhop = 1.0;
-gamma = 1.0;
+gamma = Module[{s = Environment["MMA_GAMMA"], parsed},
+  If[StringLength[s] == 0,
+    1.0,
+    parsed = Quiet @ Check[ToExpression[s], $Failed];
+    If[NumericQ[parsed],
+      N[parsed],
+      Print["ERROR: invalid MMA_GAMMA = ", s];
+      Quit[1]
+    ]
+  ]
+];
+
+Print["gamma = ", gamma];
+
 wp = 80;
 kVals = Subdivide[-Pi, Pi, 800];
 
@@ -28,19 +41,42 @@ deltaRTable = {
    {1.1920928955078125*^-7, 0.0, 8.457433432340621948*^-3, 0.0, 1.617655251175165176*^-2, 0.0, 1.487755449488759041*^-2, 0.0, 1.141047198325395584*^-2, 0.0, 8.386073750443756580*^-3}
 };
 
-profileDeltaTable = deltaRTable;
-profileList = Join[
+(*profileDeltaTable = deltaRTable;*)
+(* smoke test*)
+profileDeltaTable = {deltaR};
+
+(*profileList = Join[
    Table[{r, "-"}, {r, {1, 3, 5}}],
    Table[{r, "+"}, {r, {0, 2, 4}}]
-];
+];*)
 
-zetasVal = Join[
+(* smoke test*)
+profileList = Table[{r, "-"}, {r, {3}}];
+
+(*zetasVal = Join[
    Subdivide[-2.5, -1., 40],
    Rest @ Subdivide[-1., 1., 160],
    Rest @ Subdivide[1., 2.5, 40]
+];*)
+(* smoke test *)
+zetasVal = Join[
+   Subdivide[-2.5, -1., 10],
+   Rest @ Subdivide[-1., 1., 10],
+   Rest @ Subdivide[1., 2.5, 10]
 ];
 
-runDiagnostics = True;
+
+runDiagnostics = Module[{s = ToLowerCase @ StringTrim @ Environment["MMA_RUN_DIAGNOSTICS"]},
+  Switch[s,
+    "", False,
+    "1" | "true" | "yes" | "on", True,
+    "0" | "false" | "no" | "off", False,
+    _, Print["ERROR: invalid MMA_RUN_DIAGNOSTICS = ", s]; Quit[1]
+  ]
+];
+
+Print["runDiagnostics = ", runDiagnostics];
+
 rDiag = 3;
 signDiag = "-";
 zDiag = -0.0033333;
