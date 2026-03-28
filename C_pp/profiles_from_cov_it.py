@@ -21,6 +21,18 @@ python3 profiles_from_cov_it.py \
 import os
 import sys
 import argparse
+
+# This script is I/O and plotting heavy, not dense-linear-algebra heavy.
+# On shared systems OpenBLAS/MKL can otherwise try to spawn many threads
+# during import, which can fail or segfault even with --n-jobs 1.
+for env_name in (
+    "OPENBLAS_NUM_THREADS",
+    "OMP_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+):
+    os.environ.setdefault(env_name, "1")
+
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
