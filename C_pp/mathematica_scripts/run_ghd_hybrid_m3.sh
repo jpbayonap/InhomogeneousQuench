@@ -26,6 +26,8 @@ SANDBOX_PATH="${SANDBOX_PATH:-/home/PERSONALE/juanpablo.bayonapen2/test/ubuntu16
 # Bind the whole repo so the Mathematica script can read/write under C_pp.
 HOST_DIR="$REPO_DIR"
 CONTAINER_DIR="/mnt/repo"
+WORK_ROOT="/home/work/teorica"
+
 
 # Use a cleaned batch .wl script by default.
 MMA_SCRIPT="${MMA_SCRIPT:-GHD_hybrid_batch.wl}"
@@ -42,6 +44,12 @@ if [[ ! -d "$SANDBOX_PATH" ]]; then
   echo "Sandbox container not found: $SANDBOX_PATH" >&2
   exit 1
 fi
+
+if [[ ! -d "$WORK_ROOT" ]]; then
+  echo "Work root not found: $WORK_ROOT" >&2
+  exit 1
+fi
+
 
 if [[ ! -f "$SCRIPT_DIR/$MMA_SCRIPT" ]]; then
   echo "Mathematica script not found: $SCRIPT_DIR/$MMA_SCRIPT" >&2
@@ -60,8 +68,10 @@ echo "MMA_GAMMA=$MMA_GAMMA"
 echo "MMA_RUN_DIAGNOSTICS=$MMA_RUN_DIAGNOSTICS"
 
 
-
-apptainer exec --bind "$HOST_DIR:$CONTAINER_DIR" "$SANDBOX_PATH" bash -lc "
+apptainer exec \
+  --bind "$WORK_ROOT:/mnt" \
+  --bind "$HOST_DIR:$CONTAINER_DIR" \
+  "$SANDBOX_PATH" bash -lc "
   set -euo pipefail
   echo 'Adding /mnt/ffhiggstop/Wolfram/Mathematica/13.3/Executables to PATH ...'
   export PATH=\$PATH:/mnt/ffhiggstop/Wolfram/Mathematica/13.3/Executables
@@ -72,6 +82,8 @@ apptainer exec --bind "$HOST_DIR:$CONTAINER_DIR" "$SANDBOX_PATH" bash -lc "
   export NUMEXPR_NUM_THREADS=1
   export MMA_GAMMA=$MMA_GAMMA
   export MMA_RUN_DIAGNOSTICS=$MMA_RUN_DIAGNOSTICS
+  ls /mnt/ffhiggstop/Wolfram/Mathematica/13.3/Executables
+
 
 
 
