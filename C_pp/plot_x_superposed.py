@@ -5,7 +5,7 @@ import os
 import re
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.ticker import MaxNLocator
+from matplotlib.ticker import MaxNLocator, FormatStrFormatter
 
 INIT_STATES = ("neel", "polarized", "neel_even", "beta", "beta_lr", "vac_fill", "mixed_neel", "vac_infty", "phsymm", "phsymm_odd")
 
@@ -27,6 +27,9 @@ python3 plot_neelGHD_superposed.py \
 
 
 '''
+DEFAULT_X_PAD = 20
+
+
 def parse_list(s, cast=float):
     if s is None:
         return None
@@ -700,6 +703,12 @@ def main():
     )
     ap.add_argument("--z-min", type=float, default=-2.5, help="Minimum zeta shown on x-axis.")
     ap.add_argument("--z-max", type=float, default=2.5, help="Maximum zeta shown on x-axis.")
+    ap.add_argument(
+        "--x-pad",
+        type=int,
+        default=DEFAULT_X_PAD,
+        help=f"Extra lattice positions added on each side of the x-window beyond r (default: {DEFAULT_X_PAD}).",
+    )
     ap.add_argument("--show-title", dest="show_title", action="store_true", help="Show figure title (default: on).")
     ap.add_argument("--no-show-title", dest="show_title", action="store_false", help="Hide figure title.")
     ap.add_argument(
@@ -719,6 +728,8 @@ def main():
     args = ap.parse_args()
     if args.z_min >= args.z_max:
         raise SystemExit("--z-min must be smaller than --z-max.")
+    if args.x_pad < 0:
+        raise SystemExit("--x-pad must be non-negative.")
 
     csv_search_dirs = build_csv_search_dirs(args.outdir, args.py_csv_dir, args.init_state)
     mat_search_dirs = build_mat_search_dirs(args.outdir, args.mat_csv_dir, args.init_state)
@@ -940,14 +951,14 @@ def main():
                 raise ValueError(f"No numeric rows found in Mathematica CSV: {path}")
             return data[:,0], data[:,1], data[:,2] # zeta, q , J
 
-    def cross_boundary_x_vals(r_val, n_val):
+    def cross_boundary_x_vals(r_val, n_val, x_pad):
         center = int(n_val) // 2
-        r_val= r_val +20
+        r_val = r_val + int(x_pad)
         return np.arange(center - int(r_val) + 1, center + + int(r_val)+1, dtype=int)
 
     def sample_qx_from_profile(zeta_axis, q_axis, r_val, t_val, n_val):
         center = int(n_val) // 2
-        x_targets = cross_boundary_x_vals(r_val, n_val)
+        x_targets = cross_boundary_x_vals(r_val, n_val, args.x_pad)
         zeta_targets = (x_targets - (center - 1)) / float(t_val)
         order = np.argsort(zeta_axis)
         zeta_sorted = np.asarray(zeta_axis, dtype=float)[order]
@@ -1095,7 +1106,7 @@ def main():
 
     def draw_group(meta, ax, label_prefix=None, color_offset=0, legend_mode="both"):
         init_state = meta["init_state"]
-        x_vals_ref = cross_boundary_x_vals(meta["r_val"], meta["info0"]["N"]) - (meta["info0"]["N"] // 2)
+        x_vals_ref = cross_boundary_x_vals(meta["r_val"], meta["info0"]["N"], args.x_pad) - (meta["info0"]["N"] // 2)
         for idx, (path, info) in enumerate(meta["items"]):
             zeta, q_vals, _ = load_profile(path, "py")
             x_vals, q_x = sample_qx_from_profile(zeta, q_vals, meta["r_val"], info["T"], info["N"])
@@ -1121,6 +1132,7 @@ def main():
         ax.grid(True, ls="--", alpha=0.5)
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
         ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
+        ax.yaxis.set_major_formatter(FormatStrFormatter("%.6g"))
         ax.set_ylabel(qx_ylabel(meta["sign_val"]), labelpad=6)
         if legend_mode == "both":
             ax.legend(fontsize=11, loc="best")

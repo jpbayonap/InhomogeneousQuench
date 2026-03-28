@@ -25,6 +25,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator, FormatStrFormatter
 from joblib import Parallel, delayed
 
 here = os.path.dirname(os.path.abspath(__file__))
@@ -157,6 +158,21 @@ def png_outpath(base_outdir, csv_path):
     return os.path.join(png_dir, os.path.basename(csv_path).replace(".csv", ".png"))
 
 
+def xgrid_outpaths(base_outdir, meta, r_list, sign_label, x_pad):
+    state = meta["init_state"]
+    png_dir = os.path.join(base_outdir, "GHD_IT_X_PNG", state)
+    pdf_dir = os.path.join(base_outdir, "GHD_IT_X_PDF", state)
+    os.makedirs(png_dir, exist_ok=True)
+    os.makedirs(pdf_dir, exist_ok=True)
+    r_tag = "r" + "_".join(str(int(r)) for r in r_list)
+    s_tag = f"s_{meta['s_offset']}"
+    base = f"GHD_IT_{state.upper()}_xgrid_{sign_label}_{r_tag}_{s_tag}_gamma{meta['gamma']:.2f}_T{meta['time']}_N{meta['N']}_xpad{x_pad}"
+    return (
+        os.path.join(png_dir, base + ".png"),
+        os.path.join(pdf_dir, base + ".pdf"),
+    )
+
+
 def title_for(meta, r, sign, a_sites, b_sites):
     g = meta["gamma"]
     T = meta["time"]
@@ -181,6 +197,31 @@ def title_for(meta, r, sign, a_sites, b_sites):
     if state == "neel":
         return rf"$A={a_label},\ B={b_label},\ \gamma={g},\ T={T},\ N={N},\ r={r},\ \mathrm{{sign}}={sign}$"
     return rf"$\beta={meta['beta']},\ A={a_label},\ B={b_label},\ \gamma={g},\ T={T},\ N={N},\ r={r},\ \mathrm{{sign}}={sign}$"
+
+
+def xgrid_title_for(meta, r_list, sign_label):
+    g = meta["gamma"]
+    T = meta["time"]
+    N = meta["N"]
+    state = meta["init_state"]
+    r_tag = ",".join(str(int(r)) for r in r_list)
+    if state == "neel":
+        return rf"$\mathrm{{Neel}},\ {sign_label},\ r\in\{{{r_tag}\}},\ \gamma={g},\ T={T},\ N={N}$"
+    if state == "neel_even":
+        return rf"$\mathrm{{Vacuum\ Neel\ even}},\ {sign_label},\ r\in\{{{r_tag}\}},\ \gamma={g},\ T={T},\ N={N}$"
+    if state == "vac_fill":
+        return rf"$\mathrm{{Vac/Fill}},\ {sign_label},\ r\in\{{{r_tag}\}},\ \gamma={g},\ T={T},\ N={N}$"
+    if state == "mixed_neel":
+        return rf"$\mathrm{{Mixed\ Neel}},\ {sign_label},\ r\in\{{{r_tag}\}},\ \gamma={g},\ T={T},\ N={N}$"
+    if state == "vac_infty":
+        return rf"$\mathrm{{Vac/Infty}},\ {sign_label},\ r\in\{{{r_tag}\}},\ \gamma={g},\ T={T},\ N={N}$"
+    if state == "phsymm":
+        return rf"$\mathrm{{PHSYMM}},\ {sign_label},\ r\in\{{{r_tag}\}},\ \gamma={g},\ T={T},\ N={N}$"
+    if state == "phsymm_odd":
+        return rf"$\mathrm{{PHSYMM\ odd}},\ {sign_label},\ r\in\{{{r_tag}\}},\ \gamma={g},\ T={T},\ N={N}$"
+    if state == "beta_lr":
+        return rf"$\beta_L={meta['betaL']},\ \beta_R={meta['betaR']},\ {sign_label},\ r\in\{{{r_tag}\}},\ \gamma={g},\ T={T},\ N={N}$"
+    return rf"$\beta={meta['beta']},\ {sign_label},\ r\in\{{{r_tag}\}},\ \gamma={g},\ T={T},\ N={N}$"
 
 
 def get_elem(C, i, j, bc):
@@ -232,7 +273,89 @@ def compute_profiles(C_t, xs, r, sign):
     return q_vals, j_vals
 
 
+def qx_ylabel(sign):
+    if sign == "-":
+        return r"$\langle q^{(r,-)}_x(t)\rangle$"
+    return r"$\langle q^{(r,+)}_x(t)\rangle$"
+
+
+def build_xgrid_rows(r_list, sign_list, parity_mode):
+    if parity_mode:
+        return [
+            ("+", [r for r in r_list if int(r) % 2 == 0]),
+            ("-", [r for r in r_list if int(r) % 2 != 0]),
+        ]
+    return [(sign, list(r_list)) for sign in sign_list]
+
+
+def save_xgrid(base_outdir, meta, xs, center, q_lookup, r_list, sign_list, x_pad, parity_mode):
+    row_specs = build_xgrid_rows(r_list, sign_list, parity_mode)
+    row_specs = [(sign, rs) for sign, rs in row_specs if rs]
+    if not row_specs:
+        return
+
+    cols = max(len(rs) for _, rs in row_specs)
+    rows = len(row_specs)
+    fig, axes = plt.subplots(rows, cols, figsize=(4.1 * cols, 3.4 * rows), squeeze=False, sharex=False)
+
+    x_rel = np.asarray(xs, dtype=int) - (int(center) - 1)
+    half_width = int(x_pad)
+    mask = (x_rel >= -half_width) & (x_rel <= half_width)
+
+    for row_idx, (sign, rs) in enumerate(row_specs):
+        for col_idx in range(cols):
+            ax = axes[row_idx, col_idx]
+            if col_idx >= len(rs):
+                ax.axis("off")
+                continue
+            r = rs[col_idx]
+            q_vals = q_lookup.get((r, sign))
+            if q_vals is None:
+                ax.axis("off")
+                continue
+            q_window = np.asarray(q_vals[mask], dtype=float)
+            ax.scatter(x_rel[mask], q_window, s=12, c="tab:blue", alpha=0.75, linewidths=0)
+            ax.set_xlim(-half_width - 0.5, half_width + 0.5)
+            if int(r) == 1:
+                y_center = round(float(np.mean(q_window)), 4)
+                y_halfspan = 1.5e-4
+                ax.set_ylim(y_center - y_halfspan, y_center + y_halfspan)
+            ax.set_title(rf"$r={r},\ \mathrm{{sign}}={sign}$", fontsize=12, pad=6)
+            ax.grid(True, ls="--", alpha=0.5)
+            ax.xaxis.set_major_locator(MaxNLocator(integer=True, nbins=6))
+            ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
+            ax.yaxis.set_major_formatter(FormatStrFormatter("%.4f"))
+            if row_idx == rows - 1:
+                ax.set_xlabel(r"$x$")
+            if col_idx == 0:
+                ax.set_ylabel(qx_ylabel(sign))
+
+    sign_label = r"\mathrm{parity\ paired}" if parity_mode else r"\mathrm{all\ selected\ signs}"
+    fig.suptitle(xgrid_title_for(meta, r_list, sign_label), fontsize=15, y=0.98)
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
+
+    sign_file_tag = "pmparity" if parity_mode else "signs_" + "_".join(s.replace("+", "p").replace("-", "m") for s in sign_list)
+    outpng, outpdf = xgrid_outpaths(base_outdir, meta, r_list, sign_file_tag, x_pad)
+    fig.savefig(outpng, dpi=220, bbox_inches="tight", pad_inches=0.08)
+    fig.savefig(outpdf, bbox_inches="tight", pad_inches=0.08)
+    plt.close(fig)
+    print(f"wrote {outpng}")
+    print(f"wrote {outpdf}")
+
+
 def main():
+    # Match the publication-style LaTeX rendering used by the superposed plotting scripts.
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.size": 16,
+        "axes.labelsize": 18,
+        "xtick.labelsize": 17,
+        "ytick.labelsize": 17,
+        "legend.fontsize": 11,
+        "figure.titlesize": 17,
+    })
+
     ap = argparse.ArgumentParser(description="Rebuild q/J profiles from saved covariance matrices.")
     ap.add_argument("--outdir", type=str, default=".", help="Base output directory")
     ap.add_argument("--cov-dir", type=str, default=None, help="Directory with covariance .npz files (default: <outdir>/GHD_IT_COV)")
@@ -254,6 +377,7 @@ def main():
     ap.add_argument("--skip-existing", action="store_true", help="Skip outputs that already exist.")
     ap.add_argument("--z-min", type=float, default=-4.0, help="Minimum zeta shown in profile PNGs.")
     ap.add_argument("--z-max", type=float, default=4.0, help="Maximum zeta shown in profile PNGs.")
+    ap.add_argument("--x-pad", type=int, default=None, help="If set, build x-space subplot grids using a fixed window |x| <= x_pad instead of standard zeta PNGs.")
     ap.set_defaults(save_profile_png=True)
     args = ap.parse_args()
 
@@ -262,12 +386,18 @@ def main():
     args.gammas = parse_list(args.gammas, float)
     args.times = parse_list(args.times, float)
     r_list = parse_list(args.r_list, int)
-    sign_list = parse_list(args.sign, str)
+    parity_sign_mode = str(args.sign).strip() == "+/-"
+    if parity_sign_mode:
+        sign_list = ["+", "-"]
+    else:
+        sign_list = parse_list(args.sign, str)
     invalid = [s for s in sign_list if s not in {"+", "-"}]
     if invalid:
         raise SystemExit(f"Invalid --sign values: {invalid}. Allowed values are '+' and '-'.")
     if args.z_min >= args.z_max:
         raise SystemExit("--z-min must be smaller than --z-max.")
+    if args.x_pad is not None and args.x_pad < 0:
+        raise SystemExit("--x-pad must be non-negative.")
 
     cov_dir = build_cov_search_dir(args.outdir, args.cov_dir)
     if not os.path.isdir(cov_dir):
@@ -295,6 +425,9 @@ def main():
             zetas = (np.asarray(data["xs"], dtype=int) - (int(data["center"]) - 1)) / float(meta["time"])
             a_sites = np.asarray(data["a_sites"], dtype=int)
             b_sites = np.asarray(data["b_sites"], dtype=int)
+            center = int(data["center"])
+
+        q_lookup = {}
 
         for r in r_list:
             for sign in sign_list:
@@ -302,6 +435,7 @@ def main():
                 outpng = png_outpath(args.outdir, outcsv)
 
                 q_vals, j_vals = compute_profiles(C_t, xs, r, sign)
+                q_lookup[(r, sign)] = q_vals
                 if args.skip_existing and os.path.isfile(outcsv) and (not args.save_profile_png or os.path.isfile(outpng)):
                     print(f"skip existing {outcsv}")
                     continue
@@ -320,7 +454,7 @@ def main():
                     comments="",
                 )
 
-                if args.save_profile_png:
+                if args.save_profile_png and args.x_pad is None:
                     fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharex=True)
                     axes[0].scatter(zetas, q_vals, s=4, c="blue", alpha=0.6, label="q")
                     axes[1].scatter(zetas, j_vals, s=4, c="red", alpha=0.6, label="J")
@@ -329,8 +463,8 @@ def main():
                         ax.grid(True, ls="--", alpha=0.5)
                         ax.legend()
                         ax.set_xlim(args.z_min, args.z_max)
-                    axes[0].set_ylabel("q")
-                    axes[1].set_ylabel("J")
+                    axes[0].set_ylabel(r"$q(\zeta)$")
+                    axes[1].set_ylabel(r"$J(\zeta)$")
                     for ax in axes:
                         ax.set_xlim(-2.5,2.5)
                     fig.suptitle(title_for(meta, r, sign, a_sites, b_sites))
@@ -340,6 +474,9 @@ def main():
                     print(f"wrote {outcsv} and {outpng}")
                 else:
                     print(f"wrote {outcsv}")
+
+        if args.save_profile_png and args.x_pad is not None:
+            save_xgrid(args.outdir, meta, xs, center, q_lookup, r_list, sign_list, args.x_pad, parity_sign_mode)
         return None
 
     Parallel(n_jobs=args.n_jobs)(delayed(run_entry)(meta) for meta in entries)
