@@ -300,7 +300,7 @@ def build_xgrid_rows(r_list, sign_list, parity_mode):
     return [(sign, list(r_list)) for sign in sign_list]
 
 
-def save_xgrid(base_outdir, meta, xs, center, q_lookup, r_list, sign_list, x_pad, parity_mode):
+def save_xgrid(base_outdir, meta, xs, center, q_lookup, r_list, sign_list, x_pad, parity_mode, show_title):
     row_specs = build_xgrid_rows(r_list, sign_list, parity_mode)
     row_specs = [(sign, rs) for sign, rs in row_specs if rs]
     if not row_specs:
@@ -342,9 +342,12 @@ def save_xgrid(base_outdir, meta, xs, center, q_lookup, r_list, sign_list, x_pad
             if col_idx == 0:
                 ax.set_ylabel(qx_ylabel(sign))
 
-    sign_label = r"\mathrm{parity\ paired}" if parity_mode else r"\mathrm{all\ selected\ signs}"
-    fig.suptitle(xgrid_title_for(meta, r_list, sign_label), fontsize=15, y=0.98)
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    if show_title:
+        sign_label = r"\mathrm{parity\ paired}" if parity_mode else r"\mathrm{all\ selected\ signs}"
+        fig.suptitle(xgrid_title_for(meta, r_list, sign_label), fontsize=15, y=0.98)
+        fig.tight_layout(rect=[0, 0, 1, 0.95])
+    else:
+        fig.tight_layout()
 
     sign_file_tag = "pmparity" if parity_mode else "signs_" + "_".join(s.replace("+", "p").replace("-", "m") for s in sign_list)
     outpng, outpdf = xgrid_outpaths(base_outdir, meta, r_list, sign_file_tag, x_pad)
@@ -390,7 +393,10 @@ def main():
     ap.add_argument("--z-min", type=float, default=-4.0, help="Minimum zeta shown in profile PNGs.")
     ap.add_argument("--z-max", type=float, default=4.0, help="Maximum zeta shown in profile PNGs.")
     ap.add_argument("--x-pad", type=int, default=None, help="If set, build x-space subplot grids using a fixed window |x| <= x_pad instead of standard zeta PNGs.")
+    ap.add_argument("--show-title", dest="show_title", action="store_true", help="Show figure title (default: on).")
+    ap.add_argument("--no-show-title", dest="show_title", action="store_false", help="Hide figure title.")
     ap.set_defaults(save_profile_png=True)
+    ap.set_defaults(show_title=True)
     args = ap.parse_args()
 
     args.sizes = parse_list(args.sizes, int)
@@ -479,7 +485,8 @@ def main():
                     axes[1].set_ylabel(r"$J(\zeta)$")
                     for ax in axes:
                         ax.set_xlim(-2.5,2.5)
-                    fig.suptitle(title_for(meta, r, sign, a_sites, b_sites))
+                    if args.show_title:
+                        fig.suptitle(title_for(meta, r, sign, a_sites, b_sites))
                     fig.tight_layout()
                     fig.savefig(outpng, dpi=200)
                     plt.close(fig)
@@ -488,7 +495,7 @@ def main():
                     print(f"wrote {outcsv}")
 
         if args.save_profile_png and args.x_pad is not None:
-            save_xgrid(args.outdir, meta, xs, center, q_lookup, r_list, sign_list, args.x_pad, parity_sign_mode)
+            save_xgrid(args.outdir, meta, xs, center, q_lookup, r_list, sign_list, args.x_pad, parity_sign_mode, args.show_title)
         return None
 
     Parallel(n_jobs=args.n_jobs)(delayed(run_entry)(meta) for meta in entries)
