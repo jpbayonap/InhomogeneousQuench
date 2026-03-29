@@ -8,26 +8,25 @@ beta= 1.0;
 wp =80;
 kVals = Subdivide[-Pi, Pi, 800];
 
-
-deltaR = {
-  -1.737326383590698242*^-1, 0.0,
-  -1.352835986763238907*^-1, 0.0,
-  -3.177935071289539337*^-2, 0.0,
-  -6.464179255999624729*^-3
+deltaRtest = {
+   1.589174270629882812*^-1, 0.0,
+  -1.330617368221282959*^-1, 0.0,
+  -1.641092076897621155*^-2, 0.0,
+  -5.921255331486463547*^-3, 0.0,
+  -1.632967847399413586*^-3, 0.0,
+  -7.708735647611320019*^-4
 };
 
 
 
 
 
-
-
-deltaTag = "delta"<>ToString[Length[deltaR]];
+deltaTag = "delta"<>ToString[Length[deltaRtest]];
 Print["deltaTag = ", deltaTag];
 
 (* delta Table*)
 
-deltaRTable = Table[Take[deltaR, n], {n, 1, Length[deltaR], 2}];
+deltaRTable = Table[Take[deltaRtest, n], {n, 1, Length[deltaRtest], 2}];
 profileDeltaTable = deltaRTable;
 
 Grid[Prepend[Table[{"delta"<>ToString[Length[d]], Length[d], d},
@@ -73,10 +72,10 @@ Print["pngDir = ",pngDir];
 
 
 (* test parameters*)
-rTest = 3;
+rTest = 1;
 zetasTest=Join[Subdivide[-2.5,-1.,4],Rest@Subdivide[-1.,1.,4],
 Rest@Subdivide[1.,2.5,4]];
-zetaTest = 0.0;
+zetaTest = -0.0001;
 
 
 
@@ -132,13 +131,12 @@ If[Head[delta] =!= List,
 
 rVals = Range[mVal];
 
-nList=Table[nCoeffMatsubara[r, betaVal, nMax, jVal],{r, 1, mVal}];
 gMat=Table[gMatElem[r,n,jVal],{r,1,mVal},{n,1,mVal}];
 (* delta_r *)
 DeltaPad= PadRight[N@delta,mVal,0.0];
-A = gMat + DiagonalMatrix[Table[N[Pi*gammaVal*jVal, wpVal], {r, 1, mVal}]];
+A = gMat ;
+rhs = -gammaVal * DeltaPad;
 
-rhs=Table[N[-(2 gammaVal/Pi)*nList[[r]],wpVal],{r,1,mVal}] -DeltaPad;
 (* CHECK*)
 Print["Dimensions[gMat] = ", Dimensions[gMat]];
 Print["Length[nList] = ", Length[nList]];
@@ -186,96 +184,21 @@ signTest = "+";
 beta = 1.0;
 
 
-solTest = SolveThermalSystemDirectTherm[M, beta, gamma, Jhop, deltaR, 4000, wp];
+sol = SolveThermalSystemDirectTherm[M, beta, gamma, Jhop, deltaRtest, 4000, wp];
 (*Print["Head[sol] = ", Head[sol]];*)
 (*Print["sol = ", InputForm[sol]];*)
-If[!MatchQ[solTest, {_List, _List}],
-  Print["SolveThermalSystemDirectTherm did not return {rVals, aVals}."];
-  Abort[];
-];
-{rValsTest, aValsTest} = solTest;
-
-qSingle = HydCharge[rTest, zetaTest, signTest, rValsTest, aValsTest];
-jSingle = HydCurrent[rTest, zetaTest, signTest, rValsTest, aValsTest];
-
-Print["zetaTest = ", zetaTest];
-Print["qSingle = ", qSingle];
-Print["jSingle = ", jSingle];
-
-
-
-(* LONG RUN: r = 1,3,5 *)
-
-sol = SolveThermalSystemDirectTherm[M, beta, gamma, Jhop, deltaR, 4000, wp];
 If[!MatchQ[sol, {_List, _List}],
   Print["SolveThermalSystemDirectTherm did not return {rVals, aVals}."];
   Abort[];
 ];
 {rVals, aVals} = sol;
 
-gammaTag = StringReplace[
-  ToString @ NumberForm[N[gamma], {Infinity, 2}, NumberPadding -> {"", "0"}],
-  " " -> ""
-];
+qSingle = HydCharge[rTest, zetaTest, signTest, rVals, aVals];
+jSingle = HydCurrent[rTest, zetaTest, signTest, rVals, aVals];
 
-betaTag = StringReplace[
-  ToString @ NumberForm[N[beta], {Infinity, 1}, NumberPadding -> {"", "0"}],
-  " " -> ""
-];
-
-Do[
-  {rval, signval} = rs;
-
-  Print["Running ", deltaTag, " r=", rval, " sign=", signval];
-
-  qVals = HydCharge[rval, #, signval, rVals, aVals] & /@ zetasVal;
-  jVals = HydCurrent[rval, #, signval, rVals, aVals] & /@ zetasVal;
-
-  badQ = Flatten @ Position[qVals, _?(Not @* finiteRealQ), {1}, Heads -> False];
-  badJ = Flatten @ Position[jVals, _?(Not @* finiteRealQ), {1}, Heads -> False];
-
-  If[badQ =!= {} || badJ =!= {},
-    Print["ERROR: non-numeric values found. badQ=", badQ, " badJ=", badJ];
-    Continue[];
-  ];
-
-  dataVals = N @ Transpose[{zetasVal, qVals, jVals}];
-
-  plot = ListLinePlot[
-    {
-      Transpose[{zetasVal, qVals}],
-      Transpose[{zetasVal, jVals}]
-    },
-    PlotLegends -> {"q", "J"},
-    Frame -> True,
-    FrameLabel -> {"zeta", "value"},
-    PlotLabel -> Row[{
-      "THERM beta, ", deltaTag,
-      ", r=", rval,
-      ", sign=", signval,
-      ", beta=", betaTag,
-      ", gamma=", gammaTag,
-      ", M=", M,
-      ", wp=", wp
-    }],
-    ImageSize -> 700
-  ];
-
-  fileStem = StringTemplate[
-    "GHD_THERM_Beta_``_r``_sign``_beta``_gamma``_M``_wp``_seggrid"
-  ][deltaTag, rval, signval, betaTag, gammaTag, M, wp];
-
-  csvOut = FileNameJoin[{csvDir, fileStem <> ".csv"}];
-  pngOut = FileNameJoin[{pngDir, fileStem <> ".png"}];
-
-  Export[csvOut, Prepend[dataVals, {"zeta", "q", "J"}], "CSV"];
-  Export[pngOut, plot, "PNG"];
-
-  Print["Saved CSV: ", csvOut];
-  Print["Saved PNG: ", pngOut];
-
-, {rs, {{1, "+"}, {3, "+"}, {5, "+"}}}]
-
+Print["zetaTest = ", zetaTest];
+Print["qSingle = ", qSingle];
+Print["jSingle = ", 0.5 jSingle];
 
 
 

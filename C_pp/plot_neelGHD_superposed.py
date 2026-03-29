@@ -34,6 +34,34 @@ def parse_list(s, cast=float):
     return [cast(p) for p in parts]
 
 
+def parse_r_sign_pairs(s):
+    if s is None:
+        return None
+    tokens = s.replace(",", " ").split()
+    pairs = []
+    for tok in tokens:
+        tok = tok.strip()
+        if not tok:
+            continue
+        if ":" in tok:
+            left, right = tok.split(":", 1)
+        else:
+            left, right = tok[:-1], tok[-1]
+        try:
+            r_val = int(left)
+        except ValueError as exc:
+            raise SystemExit(
+                f"Invalid --r-sign-pairs token '{tok}'. Use forms like '1:- 2:+'."
+            ) from exc
+        sign = right.strip()
+        if sign not in {"+", "-"}:
+            raise SystemExit(
+                f"Invalid sign in --r-sign-pairs token '{tok}'. Use '+' or '-'."
+            )
+        pairs.append((r_val, sign))
+    return pairs or None
+
+
 def fmt2(x):
     """Format float with at most 2 digits after decimal point."""
     return f"{float(x):.2f}".rstrip("0").rstrip(".")
@@ -111,6 +139,24 @@ def init_state_panel_label(init_state):
     }
     return labels.get(init_state, r"\mathrm{Unknown}")
 
+def state_matches(requested_state, file_state, source):
+    if requested_state is None:
+        return True
+    if requested_state == file_state:
+        return True
+    # Polarized hybrid files correspond to vac_fill numerics.
+    if requested_state == "vac_fill" and source == "mat" and file_state == "polarized":
+        return True
+    return False
+
+
+def canonical_state_for_match(state):
+    if state == "polarized":
+        return "vac_fill"
+    return state
+
+
+
 
 def build_mat_search_dirs(outdir, mat_csv_dir, init_state):
     if mat_csv_dir is not None:
@@ -134,11 +180,17 @@ def build_mat_search_dirs(outdir, mat_csv_dir, init_state):
     return [d for d in candidates if os.path.isdir(d)]
 
 
-def vac_fill_unitary_ghd(zetas, r, sign, nk=4096):
+def unitary_domain_wall_ghd(zetas, r, sign, neel=False, nk=4096):
     """
-    Build unitary (gamma=0) GHD profiles for Vac/Fill:
+    Build unitary (gamma=0) GHD profiles for simple domain-wall states.
+
+    Vac/Fill:
       n_zeta(k) = nL(k) Theta(eps'(k)-zeta) + nR(k) Theta(zeta-eps'(k))
       nL=0, nR=1/(2pi), eps'(k)=2 sin(k)
+
+    Half-vacuum / half-Neel:
+      n_zeta(k) = (1 / 4pi) * Theta(zeta - eps'(k)),
+      eps'(k) = 2 sin(k).
     """
     z = np.asarray(zetas, dtype=float)
     k = np.linspace(-np.pi, np.pi, int(nk), endpoint=False)
@@ -146,7 +198,7 @@ def vac_fill_unitary_ghd(zetas, r, sign, nk=4096):
     z_col = z[:, None]
     eps_col = epsp[None, :]
     theta = np.where(z_col > eps_col, 1.0, np.where(z_col < eps_col, 0.0, 0.5))
-    n_zeta = theta / (2.0 * np.pi)
+    n_zeta = theta / ((4.0 if neel else 2.0) * np.pi)
 
     if sign == "-":
         q_mode = -2.0 * np.sin(int(r) * k)
@@ -159,6 +211,19 @@ def vac_fill_unitary_ghd(zetas, r, sign, nk=4096):
     return q_vals, j_vals
 
 
+def ensure_neel_unitary_csv(mat_dir, r, sign, zetas):
+    os.makedirs(mat_dir, exist_ok=True)
+    out_csv = os.path.join(
+        mat_dir,
+        f"GHD_r{int(r)}_sign{sign}_M0_gamma0.00unitary.csv",
+    )
+    if not os.path.isfile(out_csv):
+        q_vals, j_vals = unitary_domain_wall_ghd(zetas, r, sign, neel=True)
+        np.savetxt(out_csv, np.column_stack([zetas, q_vals, j_vals]), delimiter=",")
+        print(f"wrote {out_csv}")
+    return out_csv
+
+
 def ensure_vac_fill_unitary_csv(mat_dir, r, sign, zetas):
     os.makedirs(mat_dir, exist_ok=True)
     out_csv = os.path.join(
@@ -166,7 +231,7 @@ def ensure_vac_fill_unitary_csv(mat_dir, r, sign, zetas):
         f"GHD_vac_fill_r{int(r)}_sign{sign}_M0_gamma0.00unitary.csv",
     )
     if not os.path.isfile(out_csv):
-        q_vals, j_vals = vac_fill_unitary_ghd(zetas, r, sign)
+        q_vals, j_vals = unitary_domain_wall_ghd(zetas, r, sign, neel=False)
         np.savetxt(out_csv, np.column_stack([zetas, q_vals, j_vals]), delimiter=",")
         print(f"wrote {out_csv}")
     return out_csv
@@ -692,6 +757,12 @@ def main():
         default=None,
         help="Filter by sign. Accepts '+' or '-', or a comma/space-separated list such as '+ -'.",
     )
+    ap.add_argument(
+        "--r-sign-pairs",
+        type=str,
+        default=None,
+        help="Exact r/sign pairs to include, e.g. '1:- 2:+ 3:- 4:+'. Overrides ambiguous mixed-sign filtering.",
+    )
     ap.add_argument("--gammas", type=str, default=None, help="Comma/space-separated gamma values.")
     ap.add_argument("--beta", type=float, default=None, help="Filter by homogeneous Beta")
     ap.add_argument("--betaL", type=float, default=None, help="Filter by betaL")
@@ -762,6 +833,8 @@ def main():
 
     r_list = parse_list(args.r_list, int)
     sign_list = parse_list(args.sign, str)
+    r_sign_pairs = parse_r_sign_pairs(args.r_sign_pairs)
+    r_sign_pair_set = set(r_sign_pairs) if r_sign_pairs is not None else None
     if sign_list is not None:
         invalid = [s for s in sign_list if s not in {"+", "-"}]
         if invalid:
@@ -808,8 +881,10 @@ def main():
                 info = parse_name(path)
                 if info is None:
                     continue
-                if args.init_state is not None and info.get("init_state") != args.init_state:
+                
+                if not state_matches(args.init_state, info.get("init_state"), info.get("source")):
                     continue
+
                 if Beta is not None:
                     if info.get("beta") is None or not np.isclose(info["beta"], Beta):
                         continue
@@ -828,6 +903,8 @@ def main():
                 if r_list is not None and info["r"] not in r_list:
                     continue
                 if sign_list is not None and info["sign"] not in sign_list:
+                    continue
+                if r_sign_pair_set is not None and (info["r"], info["sign"]) not in r_sign_pair_set:
                     continue
                 if gamma_list is not None and not any(np.isclose(info["gamma"], g) for g in gamma_list):
                     continue
@@ -867,11 +944,15 @@ def main():
                 info = parse_name(fname)
                 if info is None or info.get("source") != "mat":
                     continue
-                if args.init_state is not None and info.get("init_state") != args.init_state:
+               
+                if not state_matches(args.init_state, info.get("init_state"), info.get("source")):
                     continue
+
                 if r_list is not None and info["r"] not in r_list:
                     continue
                 if sign_list is not None and info["sign"] not in sign_list:
+                    continue
+                if r_sign_pair_set is not None and (info["r"], info["sign"]) not in r_sign_pair_set:
                     continue
                 if args.phsymm_m is not None:
                     if info.get("m") is None or info["m"] != args.phsymm_m:
@@ -916,10 +997,11 @@ def main():
     # Mathematica lookup
     mat_groups = {}
     for path, info in mat_entries:
+        state_key = canonical_state_for_match(info.get("init_state"))
         if info.get("init_state") in ("phsymm", "phsymm_odd"):
-            key = (info.get("init_state"), info["r"], info["sign"], info["gamma"], info.get("m"), info.get("A"))
+            key = (state_key, info["r"], info["sign"], info["gamma"], info.get("m"), info.get("A"))
         else:
-            key = (info.get("init_state"), info["r"], info["sign"], info["gamma"])
+            key = (state_key, info["r"], info["sign"], info["gamma"])
         mat_groups.setdefault(key, []).append((path, info))
 
     if selected_mat_delta_tags is None:
@@ -1036,7 +1118,7 @@ def main():
         return palette[idx % len(palette)]
 
     def find_mat_profiles(meta, info, zeta):
-        init_state = meta["init_state"]
+        init_state = canonical_state_for_match(meta["init_state"])
         g_key = float(info["gamma"])
         if init_state in ("phsymm", "phsymm_odd"):
             mat_key = (init_state, meta["r_val"], meta["sign_val"], g_key, info.get("m"), info.get("A"))
@@ -1051,6 +1133,19 @@ def main():
             mat_info = {
                 "source": "mat",
                 "init_state": "vac_fill",
+                "r": meta["r_val"],
+                "sign": meta["sign_val"],
+                "gamma": 0.0,
+                "M": 0,
+                "delta_tag": None,
+            }
+            mat_items = [(mat_path, mat_info)]
+        if not mat_items and init_state == "neel" and np.isclose(g_key, 0.0):
+            mat_dir_for_save = args.mat_csv_dir or os.path.join(args.outdir, "GHD_NEEL_HYBRID", "csv")
+            mat_path = ensure_neel_unitary_csv(mat_dir_for_save, meta["r_val"], meta["sign_val"], zeta)
+            mat_info = {
+                "source": "mat",
+                "init_state": "neel",
                 "r": meta["r_val"],
                 "sign": meta["sign_val"],
                 "gamma": 0.0,
@@ -1260,7 +1355,7 @@ def main():
     group_metas = [build_group_meta(items) for items in py_groups.values()]
 
     if args.group_mode == "profile_grid":
-        r_order = r_list if r_list is not None else sorted({m["r_val"] for m in group_metas})
+        r_order = [r for r, _ in r_sign_pairs] if r_sign_pairs is not None else (r_list if r_list is not None else sorted({m["r_val"] for m in group_metas}))
         n_profiles = len(r_order)
         if n_profiles == 0:
             raise SystemExit("No groups available for --group-mode profile_grid.")
@@ -1272,8 +1367,14 @@ def main():
         for col, r_val in enumerate(r_order):
             q_ax = axes[0, col]
             j_ax = axes[1, col]
+            pair_sign = None
+            if r_sign_pairs is not None:
+                pair_sign = dict(r_sign_pairs)[r_val]
             col_metas = sorted(
-                [m for m in group_metas if m["r_val"] == r_val],
+                [
+                    m for m in group_metas
+                    if m["r_val"] == r_val and (pair_sign is None or m["sign_val"] == pair_sign)
+                ],
                 key=lambda m: (0 if m["sign_val"] == "-" else 1, m["sign_val"], m["region_tag"]),
             )
             if not col_metas:

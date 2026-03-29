@@ -109,6 +109,12 @@ def main():
     ap.add_argument("--wp", type=float, default=None, help="Optional wp filter.")
     ap.add_argument("--k-min", type=float, default=0.0, help="Minimum k shown. Default: 0.")
     ap.add_argument("--k-max", type=float, default=float(np.pi), help="Maximum k shown. Default: pi.")
+    ap.add_argument(
+        "--k-pad",
+        type=float,
+        default=0.07,
+        help="Display padding added to the normalized k/pi axis on each side. Data remain masked to [k-min, k-max].",
+    )
     ap.add_argument("--show-title", dest="show_title", action="store_true", help="Show figure title.")
     ap.add_argument("--no-show-title", dest="show_title", action="store_false", help="Hide figure title.")
     ap.set_defaults(show_title=True)
@@ -159,6 +165,18 @@ def main():
     if missing:
         preview = ", ".join([f"({d}, gamma={g:g})" for d, g in missing[:8]])
         raise SystemExit(f"Missing CHI_PLUS curves for: {preview}")
+    
+    marker_map = {
+    "delta0": "D",
+    "delta1": "o",
+    "delta3": "s",
+    "delta5": "^",
+    }
+
+    
+    
+
+
 
     fig, ax = plt.subplots(figsize=(8.6, 5.2))
     color_cycle = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple", "tab:brown"]
@@ -170,6 +188,7 @@ def main():
             path, _info = chosen[(delta_tag, gamma)]
             k_vals, chi_vals = load_chi_csv(path)
             mask = (k_vals >= args.k_min) & (k_vals <= args.k_max)
+            k_plot = k_vals[mask] / np.pi
             label = (
                 "$"
                 + r",\ ".join(
@@ -177,19 +196,29 @@ def main():
                 )
                 + "$"
             )
+            
             ax.plot(
-                k_vals[mask],
+                k_plot,
                 chi_vals[mask],
                 color=color,
                 linestyle=linestyle_cycle[gamma_idx % len(linestyle_cycle)],
-                lw=1.4,
+                lw=1.2,
+                marker=marker_map.get(delta_tag, "o"),
+                markersize=4.0,
+                markevery=10,
                 label=label,
             )
 
-    ax.set_xlim(args.k_min, args.k_max)
+
+    x_min = args.k_min / np.pi
+    x_max = args.k_max / np.pi
+    ax.set_xlim(x_min - args.k_pad, x_max + args.k_pad)
     ax.grid(True, ls="--", alpha=0.45)
-    ax.set_xlabel(r"$k$")
-    ax.set_ylabel(r"$\chi_+(k)$")
+    ax.set_xlabel(r"$k/\pi$")
+    ax.set_ylabel(r"$\chi^R(k)$")
+    if np.isclose(args.k_min, 0.0) and np.isclose(args.k_max, np.pi):
+        ax.set_xticks([0.0, 0.25, 0.5, 0.75, 1.0])
+        ax.set_xticklabels([r"$0$", r"$1/4$", r"$1/2$", r"$3/4$", r"$1$"])
     ax.legend(loc="best")
     if args.show_title:
         delta_txt = ", ".join(delta_tags)
