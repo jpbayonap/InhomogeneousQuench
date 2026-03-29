@@ -2,7 +2,10 @@
 
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=12
+# The hybrid export is dominated by a small number of Mathematica kernels
+# doing NIntegrate work. Empirically it used ~1.8 GB RAM and did not benefit
+# from larger allocations, so 4 CPUs / 12 GB is the standard setting.
+#SBATCH --cpus-per-task=4
 #SBATCH --constraint=matrix
 #SBATCH --partition=m3
 #SBATCH --job-name="ghd_hybrid_m3"
@@ -10,7 +13,7 @@
 #SBATCH --error=slurm-ghd-hybrid-%j.err
 #SBATCH --mail-user=juanpablo.bayonapen2@unibo.it
 #SBATCH --mail-type=END,FAIL
-#SBATCH --mem=32G
+#SBATCH --mem=12G
 #SBATCH --qos=normal
 #SBATCH --time=23:59:59
 #SBATCH --chdir=/home/PERSONALE/juanpablo.bayonapen2/InhomogeneousQuench/C_pp/mathematica_scripts
