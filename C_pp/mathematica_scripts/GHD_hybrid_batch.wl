@@ -112,6 +112,9 @@ zDiag = -0.1;
 
 scriptDir = DirectoryName[$InputFileName];
 repoBase = DirectoryName[scriptDir];
+hostRepoBase = Module[{s = StringTrim @ Environment["MMA_HOST_REPO_BASE"]},
+  If[StringLength[s] == 0, Missing["NotAvailable"], s]
+];
 stateDir = Switch[
   state,
   "neel", "GHD_NEEL_HYBRID",
@@ -119,6 +122,7 @@ stateDir = Switch[
   _, "GHD_UNKNOWN_HYBRID"
 ];
 outBase = FileNameJoin[{repoBase, stateDir}];
+hostOutBase = If[MissingQ[hostRepoBase], Missing["NotAvailable"], FileNameJoin[{hostRepoBase, stateDir}]];
 
 chiCsvDir = FileNameJoin[{outBase, "chi_plus", "csv"}];
 chiPngDir = FileNameJoin[{outBase, "chi_plus", "png"}];
@@ -133,6 +137,8 @@ Scan[
 Print["scriptDir = ", scriptDir];
 Print["repoBase = ", repoBase];
 Print["outBase = ", outBase];
+If[! MissingQ[hostRepoBase], Print["hostRepoBase = ", hostRepoBase]];
+If[! MissingQ[hostOutBase], Print["hostOutBase = ", hostOutBase]];
 
 (* Set number of Kernels *)
 numKernels = Module[{s = Environment["MMA_NUM_KERNELS"]},

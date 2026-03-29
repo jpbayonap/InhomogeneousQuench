@@ -72,6 +72,7 @@ echo "MMA_GAMMA=$MMA_GAMMA"
 echo "MMA_RUN_DIAGNOSTICS=$MMA_RUN_DIAGNOSTICS"
 echo "MMA_PROFILE_MODE=$MMA_PROFILE_MODE"
 echo "MMA_SKIP_CHI=$MMA_SKIP_CHI"
+echo "HOST_REPO_BASE=$HOST_DIR/C_pp"
 
 
 apptainer exec \
@@ -91,6 +92,7 @@ apptainer exec \
   export MMA_RUN_DIAGNOSTICS=$MMA_RUN_DIAGNOSTICS
   export MMA_PROFILE_MODE=$MMA_PROFILE_MODE
   export MMA_SKIP_CHI=$MMA_SKIP_CHI
+  export MMA_HOST_REPO_BASE=$HOST_DIR/C_pp
   ls /mnt/ffhiggstop/Wolfram/Mathematica/13.3/Executables
 
 

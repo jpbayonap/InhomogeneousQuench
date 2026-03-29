@@ -116,6 +116,10 @@ def build_mat_search_dirs(outdir, mat_csv_dir, init_state):
     if mat_csv_dir is not None:
         return [mat_csv_dir]
     candidates = []
+    if init_state == "neel":
+        candidates.append(os.path.join(outdir, "GHD_NEEL_HYBRID", "csv"))
+    if init_state == "polarized":
+        candidates.append(os.path.join(outdir, "GHD_POLARIZED_HYBRID", "csv"))
     # Default vac/fill Mathematica export location.
     if init_state == "vac_fill":
         candidates.append(os.path.join(outdir, "GHD_vac_fill_mat", "csv"))
