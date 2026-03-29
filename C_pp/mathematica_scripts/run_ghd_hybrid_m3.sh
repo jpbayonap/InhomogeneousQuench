@@ -31,7 +31,7 @@ WORK_ROOT="/home/work/teorica"
 
 # Use a cleaned batch .wl script by default.
 MMA_SCRIPT="${MMA_SCRIPT:-GHD_hybrid_batch.wl}"
-MMA_NUM_KERNELS="${MMA_NUM_KERNELS:-$SLURM_CPUS_PER_TASK}"
+MMA_NUM_KERNELS="${MMA_NUM_KERNELS:-4}"
 MMA_EXEC="/mnt/ffhiggstop/Wolfram/Mathematica/13.3/Executables/math"
 TARGET_DIR="$CONTAINER_DIR/C_pp/mathematica_scripts"
 # Measuring rate 
@@ -39,6 +39,7 @@ MMA_GAMMA="${MMA_GAMMA:-1.0}"
 MMA_RUN_DIAGNOSTICS="${MMA_RUN_DIAGNOSTICS:-false}"
 MMA_PROFILE_MODE="${MMA_PROFILE_MODE:-odd}"
 MMA_STATE="${MMA_STATE:-neel}"
+MMA_SKIP_CHI="${MMA_SKIP_CHI:-auto}"
 
 
 
@@ -70,6 +71,7 @@ echo "MMA_STATE=$MMA_STATE"
 echo "MMA_GAMMA=$MMA_GAMMA"
 echo "MMA_RUN_DIAGNOSTICS=$MMA_RUN_DIAGNOSTICS"
 echo "MMA_PROFILE_MODE=$MMA_PROFILE_MODE"
+echo "MMA_SKIP_CHI=$MMA_SKIP_CHI"
 
 
 apptainer exec \
@@ -88,6 +90,7 @@ apptainer exec \
   export MMA_GAMMA=$MMA_GAMMA
   export MMA_RUN_DIAGNOSTICS=$MMA_RUN_DIAGNOSTICS
   export MMA_PROFILE_MODE=$MMA_PROFILE_MODE
+  export MMA_SKIP_CHI=$MMA_SKIP_CHI
   ls /mnt/ffhiggstop/Wolfram/Mathematica/13.3/Executables
 
 

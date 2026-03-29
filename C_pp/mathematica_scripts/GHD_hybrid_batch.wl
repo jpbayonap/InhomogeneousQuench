@@ -94,6 +94,17 @@ runDiagnostics = Module[{s = ToLowerCase @ StringTrim @ Environment["MMA_RUN_DIA
 
 Print["runDiagnostics = ", runDiagnostics];
 
+skipChiPlus = Module[{s = ToLowerCase @ StringTrim @ Environment["MMA_SKIP_CHI"]},
+  Switch[s,
+    "" | "auto", state === "polarized",
+    "1" | "true" | "yes" | "on", True,
+    "0" | "false" | "no" | "off", False,
+    _, Print["ERROR: invalid MMA_SKIP_CHI = ", s]; Quit[1]
+  ]
+];
+
+Print["skipChiPlus = ", skipChiPlus];
+
 rDiag = 3;
 signDiag = "-";
 zDiag = -0.1;
@@ -402,11 +413,15 @@ main[] := Module[
   ];
   Print["Prepared ", Length[solutions], " delta solutions."];
 
-  chiResults = DeleteCases[
-    ParallelMap[exportChiPlus, solutions, Method -> "CoarsestGrained"],
-    $Failed
+  If[skipChiPlus,
+    chiResults = {};
+    Print["Skipping ChiPlus exports due to MMA_SKIP_CHI=true."],
+    chiResults = DeleteCases[
+      ParallelMap[exportChiPlus, solutions, Method -> "CoarsestGrained"],
+      $Failed
+    ];
+    Print["ChiPlus exports completed for ", Length[chiResults], " deltas."]
   ];
-  Print["ChiPlus exports completed for ", Length[chiResults], " deltas."];
 
   If[runDiagnostics && Length[solutions] > 0,
     lastSol = Last[solutions];
