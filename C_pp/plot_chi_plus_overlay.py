@@ -215,7 +215,7 @@ def main():
     ax.set_xlim(x_min - args.k_pad, x_max + args.k_pad)
     ax.grid(True, ls="--", alpha=0.45)
     ax.set_xlabel(r"$k/\pi$")
-    ax.set_ylabel(r"$\chi^R(k)$")
+    ax.set_ylabel(r"$\chi^{(r_{\rm cut})}(k)$")
     if np.isclose(args.k_min, 0.0) and np.isclose(args.k_max, np.pi):
         ax.set_xticks([0.0, 0.25, 0.5, 0.75, 1.0])
         ax.set_xticklabels([r"$0$", r"$1/4$", r"$1/2$", r"$3/4$", r"$1$"])

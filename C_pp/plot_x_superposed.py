@@ -100,6 +100,8 @@ def build_mat_search_dirs(outdir, mat_csv_dir, init_state):
     if mat_csv_dir is not None:
         return [mat_csv_dir]
     candidates = []
+    if init_state == "neel":
+        candidates.append(os.path.join(outdir, "GHD_NEEL_MAT_CSV"))
     # Default vac/fill Mathematica export location.
     if init_state == "vac_fill":
         candidates.append(os.path.join(outdir, "GHD_vac_fill_mat", "csv"))
@@ -692,7 +694,7 @@ def main():
         help="Filter by initial-state family inferred from filename.",
     )
     ap.add_argument("--mat-csv-dir", type=str, default=None,
-                help="Directory with Mathematica CSVs (default: <outdir>/GHD_NELL_MAT_CSV)")
+                help="Directory with Mathematica CSVs (default: <outdir>/GHD_NEEL_MAT_CSV for neel, with GHD_NELL_MAT_CSV kept as a legacy fallback)")
     ap.add_argument("--mat-M", type=int, default=None,
                 help="Filter Mathematica files by M (e.g. 800)")
     ap.add_argument(

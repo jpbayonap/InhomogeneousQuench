@@ -164,11 +164,14 @@ def build_mat_search_dirs(outdir, mat_csv_dir, init_state):
     candidates = []
     if init_state == "neel":
         candidates.append(os.path.join(outdir, "GHD_NEEL_HYBRID", "csv"))
+        candidates.append(os.path.join(outdir, "GHD_NEEL_MAT_CSV"))
     if init_state == "polarized":
         candidates.append(os.path.join(outdir, "GHD_POLARIZED_HYBRID", "csv"))
     # Default vac/fill Mathematica export location.
     if init_state == "vac_fill":
         candidates.append(os.path.join(outdir, "GHD_vac_fill_mat", "csv"))
+        # Polarized hybrid files match vac/fill numerics through the alias logic.
+        candidates.append(os.path.join(outdir, "GHD_POLARIZED_HYBRID", "csv"))
     # Default PHSYMM Mathematica export location.
     if init_state == "phsymm":
         candidates.append(os.path.join(outdir, "GHD_PHSYMM_mat", "csv"))
@@ -401,7 +404,7 @@ def parse_name(path):
             "a": None, "b": None, "s": None, "T": None, "N": None,
             "r": int(d["r"]), "sign": d["sign"],
             "gamma": float(d["gamma"]), "M": int(d["M"]),
-            "delta_tag": None,
+            "delta_tag": "delta0",
             "tag": d.get("tag", "") or "",
         }
 
@@ -423,6 +426,7 @@ def parse_name(path):
             "sign": d["sign"],
             "gamma": float(d["gamma"]),
             "M": int(d["M"]),
+            "delta_tag": "delta0",
             "tag": d.get("tag", "") or "",
         }
 
@@ -444,6 +448,7 @@ def parse_name(path):
             "sign": d["sign"],
             "gamma": float(d["gamma"]),
             "M": None,
+            "delta_tag": "delta0",
             "tag": d.get("tag", "") or "",
         }
 
@@ -783,7 +788,7 @@ def main():
         help="Filter by initial-state family inferred from filename.",
     )
     ap.add_argument("--mat-csv-dir", type=str, default=None,
-                help="Directory with Mathematica CSVs (default: <outdir>/GHD_NELL_MAT_CSV)")
+                help="Directory with Mathematica CSVs (default: <outdir>/GHD_NEEL_MAT_CSV for neel, with GHD_NELL_MAT_CSV kept as a legacy fallback)")
     ap.add_argument("--mat-M", type=int, default=None,
                 help="Filter Mathematica files by M (e.g. 800)")
     ap.add_argument(

@@ -121,7 +121,7 @@ N[-4 J^2 num/den, wp]
 ClearAll[SolveThermalSystemDirectTherm];
 SolveThermalSystemDirectTherm[mVal_, betaVal_, gammaVal_, jVal_, delta_, nMax_: 4000, wpVal_: 60] :=
 Module[
-{rVals, gMat, A, rhs, a, DeltaPad, res, nList},
+{rVals, gMat, A, rhs, a, DeltaPad, res},
 
 If[!IntegerQ[mVal] || mVal <= 0,
   Print["ERROR: mVal must be a positive integer, got ", InputForm[mVal]];
@@ -145,12 +145,11 @@ rVals = Range[mVal];
 gMat=Table[gMatElem[r,n,jVal],{r,1,mVal},{n,1,mVal}];
 (* delta_r *)
 DeltaPad= PadRight[N@delta,mVal,0.0];
-A = gMat ;
-rhs = -gammaVal * DeltaPad;
+A =  gMat ;
+rhs = -0.5*gammaVal * DeltaPad;
 
 (* CHECK*)
 Print["Dimensions[gMat] = ", Dimensions[gMat]];
-Print["Length[nList] = ", Length[nList]];
 Print["Length[DeltaPad] = ", Length[DeltaPad]];
 Print["Dimensions[A] = ", Dimensions[A]];
 Print["Length[rhs] = ", Length[rhs]];
@@ -181,13 +180,21 @@ ThetaN[z]*nR[k]+ThetaN[-z]*ThetaN[-epsp+z]*chi+ThetaN[epsp-z]*nL[k]];
 qPlus[k_,r_?NumericQ]:=2 Cos[r k];
 qMinus[k_,r_?NumericQ]:=-2 Sin[r k];
 
-HydCharge[r_?NumericQ,z_?NumericQ,sign_:"+",rVals_List,aVals_List]:=Module[{fpos,fneg},fpos[k_?NumericQ]:=If[sign==="-",qMinus[k,r],qPlus[k,r]]*nZetaPos[k,z,rVals,aVals];
+HydCharge[r_?NumericQ,z_?NumericQ,sign_:"+",rVals_List,aVals_List]:=
+Module[{fpos,fneg},fpos[k_?NumericQ]:=If[sign==="-",qMinus[k,r],qPlus[k,r]]*nZetaPos[k,z,rVals,aVals];
 fneg[k_?NumericQ]:=If[sign==="-",qMinus[k,r],qPlus[k,r]]*nZetaNeg[k,z,rVals,aVals];
-NIntegrate[fpos[k],{k,0,Pi},Method->"GlobalAdaptive",WorkingPrecision->wp,AccuracyGoal->12,PrecisionGoal->12,MinRecursion->4,MaxRecursion->60]+NIntegrate[fneg[k],{k,-Pi,0},Method->"GlobalAdaptive",WorkingPrecision->wp,AccuracyGoal->12,PrecisionGoal->12,MinRecursion->4,MaxRecursion->60]];
+NIntegrate[fpos[k],{k,0,Pi},Method->"GlobalAdaptive",WorkingPrecision->wp,AccuracyGoal->12,PrecisionGoal->12,
+MinRecursion->4,MaxRecursion->60]+NIntegrate[fneg[k],{k,-Pi,0},Method->"GlobalAdaptive",WorkingPrecision->wp,AccuracyGoal->12,PrecisionGoal->12,MinRecursion->4,MaxRecursion->60]];
 
-HydCurrent[r_?NumericQ,z_?NumericQ,sign_:"+",rVals_List,aVals_List]:=Module[{fpos,fneg},fpos[k_?NumericQ]:=(2 Jhop Sin[k])*If[sign==="-",qMinus[k,r],qPlus[k,r]]*nZetaPos[k,z,rVals,aVals];
+HydCurrent[r_?NumericQ,z_?NumericQ,sign_:"+",rVals_List,aVals_List]:=
+Module[{fpos,fneg},fpos[k_?NumericQ]:=(2 Jhop Sin[k])*If[sign==="-",qMinus[k,r],qPlus[k,r]]*nZetaPos[k,z,rVals,aVals];
 fneg[k_?NumericQ]:=(2 Jhop Sin[k])*If[sign==="-",qMinus[k,r],qPlus[k,r]]*nZetaNeg[k,z,rVals,aVals];
-NIntegrate[fpos[k],{k,0,Pi},Method->"GlobalAdaptive",WorkingPrecision->wp,AccuracyGoal->12,PrecisionGoal->12,MinRecursion->4,MaxRecursion->60]+NIntegrate[fneg[k],{k,-Pi,0},Method->"GlobalAdaptive",WorkingPrecision->wp,AccuracyGoal->12,PrecisionGoal->12,MinRecursion->4,MaxRecursion->60]];
+NIntegrate[fpos[k],{k,0,Pi},Method->"GlobalAdaptive",WorkingPrecision->wp,AccuracyGoal->12,PrecisionGoal->12,
+MinRecursion->4,MaxRecursion->60]+NIntegrate[fneg[k],{k,-Pi,0},Method->"GlobalAdaptive",WorkingPrecision->wp,AccuracyGoal->12,PrecisionGoal->12,MinRecursion->4,MaxRecursion->60]];
+
+HydCurrentCSV[r_?NumericQ,z_?NumericQ,sign_:"+",rVals_List,aVals_List] :=
+  0.5 HydCurrent[r, z, sign, rVals, aVals];
+
 
 
 (* TEST *)
@@ -209,8 +216,84 @@ jSingle = HydCurrent[rTest, zetaTest, signTest, rVals, aVals];
 
 Print["zetaTest = ", zetaTest];
 Print["qSingle = ", qSingle];
-Print["jSingle = ", 0.5 jSingle];
+Print["jSingle = ",  jSingle];
 
 
 
 
+(* LONG RUN: r = 1,3,5 *)
+
+(*sol = SolveThermalSystemDirectTherm[M, beta, gamma, Jhop, deltaRtest, 4000, wp];
+If[!MatchQ[sol, {_List, _List}],
+  Print["SolveThermalSystemDirectTherm did not return {rVals, aVals}."];
+  Abort[];
+];
+{rVals, aVals} = sol;
+
+gammaTag = StringReplace[
+  ToString @ NumberForm[N[gamma], {Infinity, 2}, NumberPadding -> {"", "0"}],
+  " " -> ""
+];
+
+betaTag = StringReplace[
+  ToString @ NumberForm[N[beta], {Infinity, 1}, NumberPadding -> {"", "0"}],
+  " " -> ""
+];
+
+Do[
+  {rval, signval} = rs;
+
+  Print["Running ", deltaTag, " r=", rval, " sign=", signval];
+
+  qVals = HydCharge[rval, #, signval, rVals, aVals] & /@ zetasVal;
+  (*jVals = HydCurrent[rval, #, signval, rVals, aVals] & /@ zetasVal;*)
+  jVals = HydCurrentCSV[rval, #, signval, rVals, aVals] & /@ zetasVal;
+
+
+  badQ = Flatten @ Position[qVals, _?(Not @* finiteRealQ), {1}, Heads -> False];
+  badJ = Flatten @ Position[jVals, _?(Not @* finiteRealQ), {1}, Heads -> False];
+
+  If[badQ =!= {} || badJ =!= {},
+    Print["ERROR: non-numeric values found. badQ=", badQ, " badJ=", badJ];
+    Continue[];
+  ];
+
+  dataVals = N @ Transpose[{zetasVal, qVals, jVals}];
+
+  plot = ListLinePlot[
+    {
+      Transpose[{zetasVal, qVals}],
+      Transpose[{zetasVal, jVals}]
+    },
+    PlotLegends -> {"q", "0.5 J"},
+    Frame -> True,
+    FrameLabel -> {"zeta", "value"},
+    PlotLabel -> Row[{
+      "THERM beta, ", deltaTag,
+      ", r=", rval,
+      ", sign=", signval,
+      ", beta=", betaTag,
+      ", gamma=", gammaTag,
+      ", M=", M,
+      ", wp=", wp
+    }],
+    ImageSize -> 700
+  ];
+
+  fileStem = StringTemplate[
+    "GHD_THERM2_Beta_``_r``_sign``_beta``_gamma``_M``_wp``_seggrid"
+  ][deltaTag, rval, signval, betaTag, gammaTag, M, wp];
+
+  csvOut = FileNameJoin[{csvDir, fileStem <> ".csv"}];
+  pngOut = FileNameJoin[{pngDir, fileStem <> ".png"}];
+
+  Export[csvOut, Prepend[dataVals, {"zeta", "q", "J"}], "CSV"];
+  Export[pngOut, plot, "PNG"];
+
+  Print["Saved CSV: ", csvOut];
+  Print["Saved PNG: ", pngOut];
+
+, {rs, {{1, "+"}, {3, "+"}, {5, "+"}}}]
+
+
+*)
