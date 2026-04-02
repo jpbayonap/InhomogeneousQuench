@@ -178,9 +178,15 @@ def main():
 
 
 
-    fig, ax = plt.subplots(figsize=(8.6, 5.2))
+    fig, ax = plt.subplots(2, 1, figsize=(8.6, 6.8), sharex=True)
     color_cycle = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple", "tab:brown"]
     linestyle_cycle = ["-", "--", "-.", ":"]
+    max_delta_tag = max(delta_tags, key=parse_delta_tag_value)
+    max_curves = {}
+
+    for gamma in gammas:
+        max_path, _max_info = chosen[(max_delta_tag, gamma)]
+        max_curves[gamma] = load_chi_csv(max_path)
 
     for delta_idx, delta_tag in enumerate(delta_tags):
         color = color_cycle[delta_idx % len(color_cycle)]
@@ -189,15 +195,17 @@ def main():
             k_vals, chi_vals = load_chi_csv(path)
             mask = (k_vals >= args.k_min) & (k_vals <= args.k_max)
             k_plot = k_vals[mask] / np.pi
+            delta_val= parse_delta_tag_value(delta_tag)
+            delta_label= str(delta_val) if delta_val is not math.inf else delta_tag
             label = (
                 "$"
                 + r",\ ".join(
-                    [format_delta_tag_tex(delta_tag), rf"\gamma={fmt_float_tag(gamma)}"]
+                    [rf"\delta={delta_label}", rf"\gamma={fmt_float_tag(gamma)}"]
                 )
                 + "$"
             )
-            
-            ax.plot(
+
+            ax[0].plot(
                 k_plot,
                 chi_vals[mask],
                 color=color,
@@ -209,21 +217,46 @@ def main():
                 label=label,
             )
 
+            if delta_tag == max_delta_tag:
+                continue
+
+            k_vals_max, chi_vals_max = max_curves[gamma]
+            if k_vals.shape == k_vals_max.shape and np.allclose(k_vals, k_vals_max):
+                delta_chi_vals = np.abs(chi_vals_max - chi_vals)
+            else:
+                chi_vals_max_interp = np.interp(k_vals, k_vals_max, chi_vals_max)
+                delta_chi_vals = np.abs(chi_vals_max_interp - chi_vals)
+
+            ax[1].plot(
+                k_plot,
+                delta_chi_vals[mask],
+                color=color,
+                linestyle=linestyle_cycle[gamma_idx % len(linestyle_cycle)],
+                lw=1.2,
+                marker=marker_map.get(delta_tag, "o"),
+                markersize=5.0*(1/(delta_idx+1)),
+                markevery=10,
+                label=label,
+            )
 
     x_min = args.k_min / np.pi
     x_max = args.k_max / np.pi
-    ax.set_xlim(x_min - args.k_pad, x_max + args.k_pad)
-    ax.grid(True, ls="--", alpha=0.45)
-    ax.set_xlabel(r"$k/\pi$")
-    ax.set_ylabel(r"$\chi^{(r_{\rm cut})}(k)$")
-    if np.isclose(args.k_min, 0.0) and np.isclose(args.k_max, np.pi):
-        ax.set_xticks([0.0, 0.25, 0.5, 0.75, 1.0])
-        ax.set_xticklabels([r"$0$", r"$1/4$", r"$1/2$", r"$3/4$", r"$1$"])
-    ax.legend(loc="best")
+    for axis in ax:
+        axis.set_xlim(x_min - args.k_pad, x_max + args.k_pad)
+        axis.grid(True, ls="--", alpha=0.45)
+        if np.isclose(args.k_min, 0.0) and np.isclose(args.k_max, np.pi):
+            axis.set_xticks([0.0, 0.25, 0.5, 0.75, 1.0])
+            axis.set_xticklabels([r"$0$", r"$1/4$", r"$1/2$", r"$3/4$", r"$1$"])
+    ax[0].set_ylabel(r"$\chi^{(\delta)}(k)$")
+    ax[1].set_ylabel(r"$\left|\chi^{(7)}(k)-\chi^{(\delta)}(k)\right|$")
+    ax[1].set_xlabel(r"$k/\pi$")
+    ax[0].legend(loc="best")
+    if len(ax[1].lines) > 0:
+        ax[1].legend(loc="best")
     if args.show_title:
         delta_txt = ", ".join(delta_tags)
         gamma_txt = ", ".join(fmt_float_tag(g) for g in gammas)
-        ax.set_title(
+        ax[0].set_title(
             rf"${args.state.title()}\ \chi_+,\ \delta\in\{{{delta_txt}\}},\ \gamma\in\{{{gamma_txt}\}}$"
         )
 
@@ -242,6 +275,7 @@ def main():
 
     out_png = os.path.join(png_dir, file_stem + ".png")
     out_pdf = os.path.join(pdf_dir, file_stem + ".pdf")
+    fig.tight_layout()
     fig.savefig(out_png, dpi=220, bbox_inches="tight", pad_inches=0.08)
     fig.savefig(out_pdf, bbox_inches="tight", pad_inches=0.08)
     plt.close(fig)

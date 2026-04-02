@@ -201,7 +201,7 @@ def main():
             size = 22
         ax.scatter(t_axis, q0, color=color, s=size, label=label)
     ax.set_xlabel(r"$t$")
-    ax.set_ylabel(r"$q(t)$")
+    ax.set_ylabel(rf"$\langle \hat{{q}}^{{({args.r},{args.sign})}} \rangle_{{\zeta}}$")
     ax.grid(True, alpha=0.25)
     ax.legend(ncol=2 if args.num_pairs > 2 else 1, fontsize=9)
     ax.set_title(

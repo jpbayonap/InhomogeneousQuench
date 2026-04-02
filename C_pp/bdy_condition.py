@@ -79,15 +79,15 @@ def compute_point(C_t, delta, x_center, r, gamma, sign, state):
     q_r = float(np.real(q_fun(r, x_center + delta, C_t, "open")))
     Delta_j = j_r - j_l
     rhs_term = gamma * q_center
-    prefactor = 1.0 if state == "beta" else -r
+    prefactor = r
     q_l = prefactor * gamma * q_l
     q_r = prefactor * gamma * q_r
     error_bdy = np.abs(Delta_j + rhs_term)
-    # The polarized/vac_fill sector satisfies the edge relation with the opposite sign.
-    edge_sign = -1.0 if state == "vac_fill" else 1.0
-    error_l = np.abs(Delta_j + edge_sign * q_l)
-    error_r = np.abs(Delta_j + edge_sign * q_r)
-    return Delta_j, rhs_term, q_l, q_r, error_bdy, error_l, error_r
+    error_l = np.abs(Delta_j +  q_l)
+    error_r = np.abs(Delta_j +  q_r)
+    error_l_rhs = np.abs(rhs_term - q_l)
+    error_r_rhs = np.abs(rhs_term - q_r)
+    return Delta_j, rhs_term, q_l, q_r, error_bdy, error_l, error_r, error_l_rhs, error_r_rhs
 
 
 def base_name(meta0, x_rel, delta, r, sign):
@@ -180,11 +180,11 @@ def main():
             x_center = (center - 1) + args.x_rel
             if x_center < 0 or x_center >= meta["N"]:
                 raise SystemExit(f"x-rel={args.x_rel} is outside valid range for N={meta['N']}.")
-            delta_j, rhs_term, q_l, q_r, error_bdy, error_l, error_r = compute_point(
+            delta_j, rhs_term, q_l, q_r, error_bdy, error_l, error_r, error_l_rhs, error_r_rhs= compute_point(
                 C_t, args.delta, x_center, args.r, meta["gamma"], args.sign, meta["init_state"]
             )
             zeta_val = float(x_center - (center - 1)) / float(meta["time"])
-            rows.append((meta["time"], zeta_val, delta_j, rhs_term, error_bdy, q_l, error_l, q_r, error_r, meta))
+            rows.append((meta["time"], zeta_val, delta_j, rhs_term, error_bdy, q_l, error_l, q_r, error_r, error_l_rhs, error_r_rhs, meta))
 
 
     # Sort by time rows[0]
@@ -198,8 +198,10 @@ def main():
     error_l = np.array([r[6] for r in rows], dtype=float)
     q_r = np.array([r[7] for r in rows], dtype=float)
     error_r = np.array([r[8] for r in rows], dtype=float)
+    error_l_rhs = np.array([r[9] for r in rows], dtype=float)
+    error_r_rhs = np.array([r[10] for r in rows], dtype=float)
     # Metadata dictionary from the first row after sorting.
-    meta0 = rows[0][9]
+    meta0 = rows[0][11]
     x_center0 = (meta0["center"] - 1) + args.x_rel
 
 
@@ -210,9 +212,21 @@ def main():
 
     np.savetxt(
         out_csv,
-        np.column_stack([t_axis, zeta_axis, delta_j, rhs_term,  error_bdy, q_l, error_l, q_r, error_r]),
+        np.column_stack([
+            t_axis,
+            zeta_axis,
+            delta_j,
+            rhs_term,
+            error_bdy,
+            q_l,
+            error_l,
+            q_r,
+            error_r,
+            error_l_rhs,
+            error_r_rhs,
+        ]),
         delimiter=",",
-        header="time,zeta_at_x,delta_j,rhs_term,error_bdy,q_l,error_l,q_r,error_r",
+        header="time,zeta_at_x,delta_j,rhs_term,error_bdy,q_l,error_l,q_r,error_r,error_l_rhs,error_r_rhs",
         comments="",
     )
 
@@ -241,6 +255,22 @@ def main():
         label=rf"$|\Delta J^{{(r,{sign_tex})}} {edge_op_tex} {edge_factor_tex} q^{{(r,{sign_tex})}}_{{+\delta}}|$",
         s=8.8,
     )
+    axes[0].scatter(
+        t_axis,
+        error_l_rhs,
+        color="tab:purple",
+        marker="x",
+        label=rf"$|\gamma \sum_{{x=-r+1}}^0 q^{{(r,{sign_tex})}}_x - {edge_factor_tex} q^{{(r,{sign_tex})}}_{{-\delta}}|$",
+        s=12.0,
+    )
+    axes[0].scatter(
+        t_axis,
+        error_r_rhs,
+        color="tab:brown",
+        marker="d",
+        label=rf"$|\gamma \sum_{{x=-r+1}}^0 q^{{(r,{sign_tex})}}_x - {edge_factor_tex} q^{{(r,{sign_tex})}}_{{+\delta}}|$",
+        s=10.0,
+    )
     axes[1].scatter(t_axis, abs(delta_j), color="tab:green", s=8.8, marker="s", label=rf"$|\Delta J^{{(r,{sign_tex})}}|$")
     axes[1].scatter(
         t_axis,
@@ -257,8 +287,8 @@ def main():
         ax.grid(True, alpha=0.25)
     
     axes[0].set_yscale("log")
-    axes[0].legend()
-    axes[1].legend()
+    axes[0].legend(ncol=2, fontsize=9)
+    axes[1].legend(ncol=2, fontsize=9)
 
     fig.suptitle(rf"$x_0={x_center0},\ \delta={args.delta},\ r={args.r},\ \mathrm{{sign}}={args.sign},\ \gamma={meta0['gamma']},\ N={meta0['N']}$")
     fig.tight_layout()

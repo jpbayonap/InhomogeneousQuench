@@ -287,8 +287,8 @@ def compute_profiles(C_t, xs, r, sign):
 
 def qx_ylabel(sign):
     if sign == "-":
-        return r"$\langle q^{(r,-)}_x(t)\rangle$"
-    return r"$\langle q^{(r,+)}_x(t)\rangle$"
+        return r"$\langle \hat q^{(r,-)}_x(t)\rangle$"
+    return r"$\langle \hat q^{(r,+)}_x(t)\rangle$"
 
 
 def build_xgrid_rows(r_list, sign_list, parity_mode):
@@ -298,6 +298,18 @@ def build_xgrid_rows(r_list, sign_list, parity_mode):
             ("-", [r for r in r_list if int(r) % 2 != 0]),
         ]
     return [(sign, list(r_list)) for sign in sign_list]
+
+
+def xgrid_y_formatter(y_vals, nbins=5, min_decimals=5, max_decimals=7):
+    y_arr = np.asarray(y_vals, dtype=float)
+    y_arr = y_arr[np.isfinite(y_arr)]
+    decimals = min_decimals
+    if y_arr.size >= 2:
+        span = float(np.max(y_arr) - np.min(y_arr))
+        if span > 0:
+            tick_step = span / max(nbins - 1, 1)
+            decimals = max(min_decimals, int(np.ceil(-np.log10(tick_step))) + 1)
+    return FormatStrFormatter(f"%.{min(decimals, max_decimals)}f")
 
 
 def save_xgrid(base_outdir, meta, xs, center, q_lookup, r_list, sign_list, x_pad, parity_mode, show_title):
@@ -326,17 +338,19 @@ def save_xgrid(base_outdir, meta, xs, center, q_lookup, r_list, sign_list, x_pad
                 ax.axis("off")
                 continue
             q_window = np.asarray(q_vals[mask], dtype=float)
+            y_formatter_source = q_window
             ax.scatter(x_rel[mask], q_window, s=12, c="tab:blue", alpha=0.75, linewidths=0)
             ax.set_xlim(-half_width - 0.5, half_width + 0.5)
             if int(r) == 1:
-                y_center = round(float(np.mean(q_window)), 4)
+                y_center = float(np.mean(q_window))
                 y_halfspan = 1.5e-4
                 ax.set_ylim(y_center - y_halfspan, y_center + y_halfspan)
+                y_formatter_source = np.array([y_center - y_halfspan, y_center + y_halfspan], dtype=float)
             ax.set_title(rf"$r={r},\ \mathrm{{sign}}={sign}$", fontsize=12, pad=6)
             ax.grid(True, ls="--", alpha=0.5)
             ax.xaxis.set_major_locator(MaxNLocator(integer=True, nbins=6))
             ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
-            ax.yaxis.set_major_formatter(FormatStrFormatter("%.4f"))
+            ax.yaxis.set_major_formatter(xgrid_y_formatter(y_formatter_source))
             if row_idx == rows - 1:
                 ax.set_xlabel(r"$x$")
             if col_idx == 0:

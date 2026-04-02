@@ -86,7 +86,7 @@ Print["pngDir = ",pngDir];
 rTest = 1;
 zetasTest=Join[Subdivide[-2.5,-1.,4],Rest@Subdivide[-1.,1.,4],
 Rest@Subdivide[1.,2.5,4]];
-zetaTest = -1.0;
+zetaTest = -0.003;
 
 
 
@@ -146,7 +146,7 @@ gMat=Table[gMatElem[r,n,jVal],{r,1,mVal},{n,1,mVal}];
 (* delta_r *)
 DeltaPad= PadRight[N@delta,mVal,0.0];
 A =  gMat ;
-rhs = -0.5*gammaVal * DeltaPad;
+rhs = -0.5 * gammaVal * DeltaPad;
 
 (* CHECK*)
 Print["Dimensions[gMat] = ", Dimensions[gMat]];
@@ -192,8 +192,7 @@ fneg[k_?NumericQ]:=(2 Jhop Sin[k])*If[sign==="-",qMinus[k,r],qPlus[k,r]]*nZetaNe
 NIntegrate[fpos[k],{k,0,Pi},Method->"GlobalAdaptive",WorkingPrecision->wp,AccuracyGoal->12,PrecisionGoal->12,
 MinRecursion->4,MaxRecursion->60]+NIntegrate[fneg[k],{k,-Pi,0},Method->"GlobalAdaptive",WorkingPrecision->wp,AccuracyGoal->12,PrecisionGoal->12,MinRecursion->4,MaxRecursion->60]];
 
-HydCurrentCSV[r_?NumericQ,z_?NumericQ,sign_:"+",rVals_List,aVals_List] :=
-  0.5 HydCurrent[r, z, sign, rVals, aVals];
+
 
 
 
@@ -223,7 +222,7 @@ Print["jSingle = ",  jSingle];
 
 (* LONG RUN: r = 1,3,5 *)
 
-(*sol = SolveThermalSystemDirectTherm[M, beta, gamma, Jhop, deltaRtest, 4000, wp];
+sol = SolveThermalSystemDirectTherm[M, beta, gamma, Jhop, deltaRtest, 4000, wp];
 If[!MatchQ[sol, {_List, _List}],
   Print["SolveThermalSystemDirectTherm did not return {rVals, aVals}."];
   Abort[];
@@ -247,7 +246,7 @@ Do[
 
   qVals = HydCharge[rval, #, signval, rVals, aVals] & /@ zetasVal;
   (*jVals = HydCurrent[rval, #, signval, rVals, aVals] & /@ zetasVal;*)
-  jVals = HydCurrentCSV[rval, #, signval, rVals, aVals] & /@ zetasVal;
+  jVals = HydCurrent[rval, #, signval, rVals, aVals] & /@ zetasVal;
 
 
   badQ = Flatten @ Position[qVals, _?(Not @* finiteRealQ), {1}, Heads -> False];
@@ -293,7 +292,10 @@ Do[
   Print["Saved CSV: ", csvOut];
   Print["Saved PNG: ", pngOut];
 
-, {rs, {{1, "+"}, {3, "+"}, {5, "+"}}}]
+, {rs, {{2, "-"}, {4, "-"}, {6, "-"}}}]
 
 
-*)
+
+
+
+

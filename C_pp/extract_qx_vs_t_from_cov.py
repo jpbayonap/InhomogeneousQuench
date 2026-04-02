@@ -128,8 +128,8 @@ def main():
     for ax in axes:
         ax.set_xlabel(r"$t$")
         ax.grid(True, alpha=0.25)
-    axes[0].set_ylabel(r"$q(x,t)$")
-    axes[1].set_ylabel(r"$J(x,t)$")
+    axes[0].set_ylabel(rf"$\langle \hat{{q}}^{{({args.r},{args.sign})}} \rangle_{{\zeta}}$")
+    axes[1].set_ylabel(rf"$\langle \hat{{J}}^{{({args.r},{args.sign})}} \rangle_{{\zeta}}$")
     fig.suptitle(rf"$x={args.x_rel},\ r={args.r},\ \mathrm{{sign}}={args.sign},\ \gamma={meta0['gamma']},\ N={meta0['N']}$")
     fig.tight_layout()
     fig.savefig(out_png, dpi=220, bbox_inches="tight")

@@ -165,6 +165,8 @@ def build_mat_search_dirs(outdir, mat_csv_dir, init_state):
     if init_state == "neel":
         candidates.append(os.path.join(outdir, "GHD_NEEL_HYBRID", "csv"))
         candidates.append(os.path.join(outdir, "GHD_NEEL_MAT_CSV"))
+    if init_state == "beta":
+        candidates.append(os.path.join(outdir, "GHD_BETA_HYBRID", "csv"))
     if init_state == "polarized":
         candidates.append(os.path.join(outdir, "GHD_POLARIZED_HYBRID", "csv"))
     # Default vac/fill Mathematica export location.
@@ -330,6 +332,9 @@ def parse_name(path):
     )
     pattern_beta_lr = re.compile(
         r"GHD_NEEL_betaL_(?P<betaL>[-0-9.]+)_betaR_(?P<betaR>[-0-9.]+)_r(?P<r>[-0-9]+)_a_(?P<a>[-0-9.]+)_b_(?P<b>[-0-9.]+)_sign(?P<sign>[+-])_gamma(?P<gamma>[-0-9.]+)_T(?P<T>[-0-9.]+)_N(?P<N>[-0-9]+)\.csv"
+    )
+    pattern_beta_mat = re.compile(
+        r"GHD_THERM2_Beta_(?P<delta_tag>delta[0-9]+)_r(?P<r>[-0-9]+)_sign(?P<sign>[+-])_beta(?P<beta>[-0-9.]+)_gamma(?P<gamma>[-0-9.]+)_M(?P<M>[-0-9]+)_wp(?P<wp>[-0-9.]+)(?P<tag>[A-Za-z0-9_.-]*)\.csv$"
     )
 
     m = pattern_neel.match(name)
@@ -733,6 +738,27 @@ def parse_name(path):
             "gamma": float(d["gamma"]),
             "T": float(d["T"]),
             "N": int(d["N"]),
+        }
+    m = pattern_beta_mat.match(name)
+    if m:
+        d = m.groupdict()
+        return {
+            "source": "mat",
+            "init_state": "beta",
+            "beta": float(d["beta"]),
+            "betaL": None,
+            "betaR": None,
+            "a": None,
+            "b": None,
+            "s": None,
+            "T": None,
+            "N": None,
+            "r": int(d["r"]),
+            "sign": d["sign"],
+            "gamma": float(d["gamma"]),
+            "M": int(d["M"]),
+            "delta_tag": d["delta_tag"],
+            "tag": d.get("tag", "") or "",
         }
     return None
 
@@ -1262,11 +1288,37 @@ def main():
             "state_tag": init_state if init_state in INIT_STATES else "unknown",
         }
 
+    def collect_visible_y(y_store, x_vals, y_vals):
+        x_arr = np.asarray(x_vals, dtype=float)
+        y_arr = np.asarray(y_vals, dtype=float)
+        mask = np.isfinite(x_arr) & np.isfinite(y_arr) & (x_arr >= args.z_min) & (x_arr <= args.z_max)
+        if np.any(mask):
+            y_store.append(y_arr[mask])
+
+    def set_tight_ylim(ax, y_series):
+        if not y_series:
+            return
+        y_all = np.concatenate(y_series)
+        y_all = y_all[np.isfinite(y_all)]
+        if y_all.size == 0:
+            return
+        y_min = float(np.min(y_all))
+        y_max = float(np.max(y_all))
+        if np.isclose(y_min, y_max):
+            pad = 0.06 * max(1.0, abs(y_min))
+        else:
+            pad = 0.08 * (y_max - y_min)
+        ax.set_ylim(y_min - pad, y_max + pad)
+
     def draw_group(meta, axes, label_prefix=None, color_offset=0, legend_mode="both"):
         init_state = meta["init_state"]
         mat_drawn = set()
+        q_visible = []
+        j_visible = []
         for idx, (path, info) in enumerate(meta["items"]):
             zeta, q_vals, j_vals = load_profile(path, "py")
+            collect_visible_y(q_visible, zeta, q_vals)
+            collect_visible_y(j_visible, zeta, j_vals)
             q_color = q_color_cycle[(color_offset + idx) % len(q_color_cycle)]
             j_color = j_color_cycle[(color_offset + idx) % len(j_color_cycle)]
             label_parts = []
@@ -1295,6 +1347,8 @@ def main():
                 draw_key = (g_key, mat_info.get("delta_tag"))
                 if draw_key in mat_drawn:
                     continue
+                collect_visible_y(q_visible, zeta_m, q_m)
+                collect_visible_y(j_visible, zeta_m, j_m)
                 q_mat_color = q_color
                 j_mat_color = j_color
                 if multi_mat_delta:
@@ -1318,6 +1372,8 @@ def main():
             ax.grid(True, ls="--", alpha=0.5)
             ax.xaxis.set_major_locator(MaxNLocator(nbins=6))
             ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
+        set_tight_ylim(axes[0], q_visible)
+        set_tight_ylim(axes[1], j_visible)
         axes[0].set_ylabel(r"$q(\zeta)$", labelpad=6)
         axes[1].set_ylabel(r"$J(\zeta)$", labelpad=10)
         axes[1].yaxis.set_label_position("right")
