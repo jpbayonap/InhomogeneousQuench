@@ -1100,27 +1100,19 @@ def main():
             return data[:,0], data[:,1], data[:,2] # zeta, q , J
 
 
-    markers = ["o", "s", "^"]
-    q_color_cycle = [
-        "tab:blue",
-        "tab:cyan",
-        "tab:green",
-        "navy",
-        "teal",
-        "tab:olive",
-        "steelblue",
-        "mediumseagreen",
+    markers = ["o", "s", "^", "D", "P", "X"]
+    time_color_cycle = [
+        "#1f77b4",
+        "#d62728",
+        "#2ca02c",
+        "#9467bd",
+        "#ff7f0e",
+        "#17becf",
+        "#8c564b",
+        "#e377c2",
     ]
-    j_color_cycle = [
-        "tab:orange",
-        "tab:red",
-        "tab:brown",
-        "tab:pink",
-        "darkgoldenrod",
-        "firebrick",
-        "sienna",
-        "peru",
-    ]
+    q_color_cycle = list(time_color_cycle)
+    j_color_cycle = list(time_color_cycle)
     delta_q_color_cycle = [
         "navy",
         "tab:blue",
@@ -1212,7 +1204,7 @@ def main():
         items = list(items)
         items.sort(key=lambda x: (
             x[1]["gamma"],
-            x[1]["T"],
+            float(x[1]["T"]),
             x[1]["b"] if x[1].get("b") is not None else 10**9,
             x[1]["s"] if x[1].get("s") is not None else 10**9,
         ))
@@ -1225,8 +1217,8 @@ def main():
 
     def format_time_meta(t_vals):
         if len(t_vals) == 1:
-            return rf"T={fmt2(t_vals[0])}", f"T{fmt2(t_vals[0])}"
-        return r"T\in\{" + ", ".join(fmt2(t) for t in t_vals) + r"\}", f"T{fmt2(t_vals[0])}_to_{fmt2(t_vals[-1])}_{len(t_vals)}pts"
+            return rf"t={fmt2(t_vals[0])}", f"t{fmt2(t_vals[0])}"
+        return r"t\in\{" + ", ".join(fmt2(t) for t in t_vals) + r"\}", f"t{fmt2(t_vals[0])}_to_{fmt2(t_vals[-1])}_{len(t_vals)}pts"
 
     def format_n_meta(n_vals):
         n_vals = sorted(int(n) for n in n_vals)
@@ -1331,13 +1323,31 @@ def main():
             if meta["include_gamma_in_label"]:
                 label_parts.append(rf"\gamma={info['gamma']:g}")
             if meta["include_time_in_label"]:
-                label_parts.append(rf"T={fmt2(info['T'])}")
+                label_parts.append(rf"t={fmt2(info['T'])}")
             if meta.get("include_n_in_label", False):
                 label_parts.append(rf"N={info['N']}")
             num_label = "$" + r",\ ".join(label_parts) + "$"
             marker = markers[idx % len(markers)]
-            axes[0].scatter(zeta, q_vals, s=5, marker=marker, color=q_color, alpha=0.22, linewidths=0, label=num_label)
-            axes[1].scatter(zeta, j_vals, s=5, marker=marker, color=j_color, alpha=0.22, linewidths=0, label=num_label)
+            axes[0].scatter(
+                zeta,
+                q_vals,
+                s=14,
+                marker=marker,
+                color=q_color,
+                alpha=0.72,
+                linewidths=0,
+                label=num_label,
+            )
+            axes[1].scatter(
+                zeta,
+                j_vals,
+                s=14,
+                marker=marker,
+                color=j_color,
+                alpha=0.72,
+                linewidths=0,
+                label=num_label,
+            )
 
             g_key = float(info["gamma"])
             mat_profiles = find_mat_profiles(meta, info, zeta)
@@ -1374,10 +1384,17 @@ def main():
             ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
         set_tight_ylim(axes[0], q_visible)
         set_tight_ylim(axes[1], j_visible)
-        axes[0].set_ylabel(r"$q(\zeta)$", labelpad=6)
-        axes[1].set_ylabel(r"$J(\zeta)$", labelpad=10)
-        axes[1].yaxis.set_label_position("right")
-        axes[1].yaxis.set_label_coords(1.10, 0.5)
+        axes[0].set_ylabel(
+            rf"$\langle \hat{{q}}^{{({meta['r_val']},{meta['sign_val']})}} \rangle_{{\zeta}}$",
+            labelpad=6,
+        )
+        axes[1].set_ylabel(
+            rf"$\langle \hat{{J}}^{{({meta['r_val']},{meta['sign_val']})}} \rangle_{{\zeta}}$",
+            labelpad=10,
+        )
+        axes[1].yaxis.tick_left()
+        axes[1].yaxis.set_label_position("left")
+        axes[1].yaxis.set_label_coords(-0.14, 0.5)
         if legend_mode == "both":
             axes[0].legend(fontsize=11, loc="lower right")
             axes[1].legend(fontsize=11, loc="lower right")

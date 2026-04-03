@@ -539,7 +539,12 @@ def main():
         )
 
         t0 = time.perf_counter()
-        if args.method == "rk4":
+        is_t0 = np.isclose(T, 0.0)
+        if is_t0:
+            vecC_t = vecC0_flat.copy()
+            elapsed = 0.0
+            print("  T=0: saving initial covariance without evolution")
+        elif args.method == "rk4":
             local_rk_steps = max(1, int(args.rk_steps))
             if args.rk_dt_max is not None:
                 local_rk_steps = max(local_rk_steps, int(np.ceil(T / args.rk_dt_max)))
@@ -601,12 +606,16 @@ def main():
             L_op = spla.LinearOperator((N * N, N * N), matvec=matvec, dtype=work_dtype)
             vecC_t = spla.expm_multiply(L_op * T, vecC0_flat)
 
-        elapsed = time.perf_counter() - t0
+        if not is_t0:
+            elapsed = time.perf_counter() - t0
         print(f"  evolution took {elapsed/60:.2f} min")
 
         C_t = vecC_t.reshape(N, N)
         xs = np.arange(N, dtype=int)
-        zetas = (xs - (center - 1)) / T
+        if is_t0:
+            zetas = np.full(N, np.nan, dtype=float)
+        else:
+            zetas = (xs - (center - 1)) / T
         save_covariance(
             outpath,
             C_t=C_t,

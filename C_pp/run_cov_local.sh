@@ -23,8 +23,8 @@ N_JOBS=${N_JOBS:-2}
 
 # Defaults for the local corrected covariance run.
 # Note: SIZES is the half-chain size L, so SIZES=1000 means total N=2000.
-SIZES=${SIZES:-"1500"}
-TIMES=${TIMES:-"150 200 250 300 350 400"}
+SIZES=${SIZES:-"2000"}
+TIMES=${TIMES:-"200 400 600 800"}
 GAMMAS=${GAMMAS:-"1.0"}
 
 # Use s_offset=size by default. main_dynamics_it_cov.py interprets --s-offset 0 that way.
